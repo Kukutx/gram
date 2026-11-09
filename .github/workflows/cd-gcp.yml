@@ -76,7 +76,7 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v3
       - name: Deploy images, database migration, webhook and worker
         run: bash scripts/gcp/deploy.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: deployment-record
