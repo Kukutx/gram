@@ -1,0 +1,16 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage
+src/generated/prisma
+*.zip
+README.md
+docs
+
+# Temporary GCP OIDC credential output; never commit or bake into images.
+gha-creds-*.json
+deployment-record.json

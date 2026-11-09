@@ -1,0 +1,27 @@
+name: Generate dependency lockfile (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    # Prisma may inspect this during package installation; no live DB is used.
+    env:
+      DATABASE_URL: postgresql://lock:lock@localhost:5432/lock
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.21.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: pnpm install --lockfile-only
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-lockfile
+          path: pnpm-lock.yaml
+          if-no-files-found: error

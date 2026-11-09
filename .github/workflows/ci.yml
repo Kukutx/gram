@@ -1,0 +1,52 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bot
+          POSTGRES_PASSWORD: bot_password
+          POSTGRES_DB: grammy_bot
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bot -d grammy_bot"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://bot:bot_password@127.0.0.1:5432/grammy_bot
+      TEST_DATABASE_URL: postgresql://bot:bot_password@127.0.0.1:5432/grammy_bot
+      TEST_REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.21.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Require committed dependency lockfile
+        run: test -s pnpm-lock.yaml || { echo 'Generate a real pnpm-lock.yaml using the manual lockfile workflow, then commit it.' >&2; exit 1; }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm smoke:offline
+      - run: pnpm db:generate
+      - run: pnpm db:validate
+      - run: pnpm db:deploy
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm test
+      - run: pnpm test:integration
+      - run: pnpm audit --audit-level moderate
+      - run: pnpm build
+      - run: docker build -t grammy-bot:ci .

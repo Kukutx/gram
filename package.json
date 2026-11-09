@@ -1,0 +1,79 @@
+{
+  "name": "grammy-production-bot",
+  "version": "1.5.0",
+  "private": true,
+  "type": "module",
+  "description": "Production-oriented Telegram bot built exclusively with grammY and TypeScript",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "packageManager": "pnpm@10.21.0",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "dev:worker": "tsx watch src/worker.ts",
+    "build": "prisma generate && tsc --project tsconfig.build.json",
+    "start": "node dist/index.js",
+    "start:worker": "node dist/worker.js",
+    "start:migrate": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "webhook:set": "tsx scripts/set-webhook.ts",
+    "webhook:delete": "tsx scripts/delete-webhook.ts",
+    "commands:sync": "tsx scripts/sync-commands.ts",
+    "typecheck": "prisma generate && tsc --noEmit --project tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build",
+    "smoke:offline": "node --experimental-strip-types scripts/offline-smoke.mjs",
+    "test:watch": "vitest",
+    "webhook:status": "tsx scripts/webhook-status.ts",
+    "doctor": "tsx scripts/doctor.ts",
+    "outbox:status": "tsx scripts/outbox-status.ts",
+    "deps:lock": "bash scripts/lock-deps.sh",
+    "release:verify": "pnpm smoke:offline && pnpm db:validate && pnpm check",
+    "db:validate": "prisma validate",
+    "ops:health": "tsx scripts/operations-health.ts",
+    "test:integration": "tsx scripts/test-integration.ts"
+  },
+  "dependencies": {
+    "@grammyjs/auto-retry": "^2.0.2",
+    "@grammyjs/menu": "^1.5.0",
+    "@prisma/adapter-pg": "^7.0.0",
+    "@prisma/client": "^7.0.0",
+    "@sentry/node": "^10.0.0",
+    "abort-controller": "3.0.0",
+    "bullmq": "^5.66.0",
+    "dotenv": "^17.0.0",
+    "fastify": "^5.0.0",
+    "grammy": "^1.46.0",
+    "ioredis": "^5.0.0",
+    "pino": "^9.0.0",
+    "prom-client": "^15.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "prisma": "^7.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@typescript-eslint/typescript-estree>minimatch": "^11.0.1"
+    },
+    "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "prisma",
+      "esbuild"
+    ]
+  }
+}

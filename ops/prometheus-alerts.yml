@@ -1,0 +1,33 @@
+groups:
+  - name: grammy-bot
+    rules:
+      - alert: GramBotUnreachable
+        expr: up{job="grammy-bot"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: Bot metrics endpoint is unreachable }
+      - alert: GramBotWorkerStopped
+        expr: grammy_bot_operations{metric="worker_fresh"} == 0 and on(job, instance) grammy_bot_operations{metric="worker_required"} == 1
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: Required Worker heartbeat is stale }
+      - alert: GramBotDeliveryBlocked
+        expr: grammy_bot_operations{metric="blocked"} > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: Telegram deliveries need operator action }
+      - alert: GramBotOutboxTooOld
+        expr: grammy_bot_operations{metric="oldest_pending_seconds"} >= 3600
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: Oldest unsent notification exceeds one hour }
+      - alert: GramBotRetentionLate
+        expr: grammy_bot_operations{metric="retention_overdue_seconds"} > 300
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: Data retention cleanup is overdue }
+      - alert: GramBotDatabaseUnreachable
+        expr: grammy_bot_operations{metric="database_query_ok"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: Operational database queries fail }

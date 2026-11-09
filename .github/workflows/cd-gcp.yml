@@ -1,0 +1,88 @@
+name: GCP production deployment (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: First deployment before webhook registration (requires follow-up verification)
+        type: boolean
+        default: false
+      bot_image_digest:
+        description: Optional validated staging Bot digest to promote
+        type: string
+      migration_image_digest:
+        description: Matching staging migration digest
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-gcp
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    # Configure a GitHub production Environment with required reviewers.
+    environment: production
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_ARTIFACT_REPO: ${{ vars.GCP_ARTIFACT_REPO }}
+      GCP_SERVICE_NAME: ${{ vars.GCP_SERVICE_NAME }}
+      GCP_WORKER_POOL: ${{ vars.GCP_WORKER_POOL }}
+      GCP_MIGRATE_JOB: ${{ vars.GCP_MIGRATE_JOB }}
+      GCP_SQL_CONNECTION_NAME: ${{ vars.GCP_SQL_CONNECTION_NAME }}
+      GCP_RUN_SERVICE_ACCOUNT: ${{ vars.GCP_RUN_SERVICE_ACCOUNT }}
+      GCP_VPC_NETWORK: ${{ vars.GCP_VPC_NETWORK }}
+      GCP_VPC_SUBNET: ${{ vars.GCP_VPC_SUBNET }}
+      GCP_ADMIN_TELEGRAM_ID: ${{ vars.GCP_ADMIN_TELEGRAM_ID }}
+      GCP_BOT_TOKEN_SECRET: ${{ vars.GCP_BOT_TOKEN_SECRET }}
+      GCP_DATABASE_URL_SECRET: ${{ vars.GCP_DATABASE_URL_SECRET }}
+      GCP_WEBHOOK_SECRET_SECRET: ${{ vars.GCP_WEBHOOK_SECRET_SECRET }}
+      GCP_REDIS_URL_SECRET: ${{ vars.GCP_REDIS_URL_SECRET }}
+      GCP_BOT_TOKEN_VERSION: ${{ vars.GCP_BOT_TOKEN_VERSION }}
+      GCP_DATABASE_URL_VERSION: ${{ vars.GCP_DATABASE_URL_VERSION }}
+      GCP_WEBHOOK_SECRET_VERSION: ${{ vars.GCP_WEBHOOK_SECRET_VERSION }}
+      GCP_REDIS_URL_VERSION: ${{ vars.GCP_REDIS_URL_VERSION }}
+      GCP_MIGRATOR_SERVICE_ACCOUNT: ${{ vars.GCP_MIGRATOR_SERVICE_ACCOUNT }}
+      GCP_MIGRATION_DATABASE_URL_SECRET: ${{ vars.GCP_MIGRATION_DATABASE_URL_SECRET }}
+      GCP_MIGRATION_DATABASE_URL_VERSION: ${{ vars.GCP_MIGRATION_DATABASE_URL_VERSION }}
+      GCP_RATE_LIMIT_PER_MINUTE: ${{ vars.GCP_RATE_LIMIT_PER_MINUTE }}
+      GCP_FEEDBACK_RETENTION_DAYS: ${{ vars.GCP_FEEDBACK_RETENTION_DAYS }}
+      GCP_SENTRY_DSN_SECRET: ${{ vars.GCP_SENTRY_DSN_SECRET }}
+      GCP_SENTRY_DSN_VERSION: ${{ vars.GCP_SENTRY_DSN_VERSION }}
+      GCP_METRICS_TOKEN_SECRET: ${{ vars.GCP_METRICS_TOKEN_SECRET }}
+      GCP_METRICS_TOKEN_VERSION: ${{ vars.GCP_METRICS_TOKEN_VERSION }}
+      GCP_SUPPORT_CONTACT: ${{ vars.GCP_SUPPORT_CONTACT }}
+      GCP_PRIVACY_POLICY_URL: ${{ vars.GCP_PRIVACY_POLICY_URL }}
+      GCP_REDIS_ENABLED: ${{ vars.GCP_REDIS_ENABLED }}
+      GCP_BOOTSTRAP: ${{ inputs.bootstrap && '1' || '0' }}
+      GCP_BOT_IMAGE_DIGEST: ${{ inputs.bot_image_digest }}
+      GCP_MIGRATION_IMAGE_DIGEST: ${{ inputs.migration_image_digest }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require committed dependency lockfile
+        run: test -s pnpm-lock.yaml || { echo 'pnpm-lock.yaml must be committed before production deployment' >&2; exit 1; }
+      # WIF is short-lived; do not create a permanent JSON service-account key.
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Deploy images, database migration, webhook and worker
+        run: bash scripts/gcp/deploy.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-record
+          path: deployment-record.json
+          if-no-files-found: ignore
+      - name: Summarize required post-deploy checks
+        run: |
+          echo 'Cloud Run deployed; check /ready, worker logs and Telegram webhook status.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Webhook registration is a separate manual action and is intentionally not modified by CI.' >> "$GITHUB_STEP_SUMMARY"

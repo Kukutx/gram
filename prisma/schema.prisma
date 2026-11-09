@@ -1,0 +1,101 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model TelegramUser {
+  id                String     @id @default(cuid())
+  telegramId        BigInt     @unique
+  username          String?    @db.VarChar(32)
+  firstName         String?    @db.VarChar(200)
+  language          String     @default("zh") @db.VarChar(2)
+  awaitingFeedback  Boolean    @default(false)
+  feedbackExpiresAt DateTime?
+  lastStateUpdateId Int?
+  lastStateUpdateAt DateTime?
+  deleteNonce       String?    @db.VarChar(16)
+  deleteExpiresAt   DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  lastSeenAt        DateTime   @default(now())
+  feedback          Feedback[]
+}
+
+model Feedback {
+  id                    String          @id @default(cuid())
+  userId                String
+  user                  TelegramUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceUpdateId        Int             @unique
+  text                  String          @db.VarChar(2000)
+  notifiedAt            DateTime?
+  deliveryLeaseToken    String?         @db.VarChar(36)
+  deliveryLeaseUntil    DateTime?
+  deliveryAttempts      Int             @default(0)
+  deliveryStatus        String          @default("pending") @db.VarChar(16)
+  lastDeliveryErrorCode Int?
+  lastDeliveryErrorAt   DateTime?
+  status                String          @default("open") @db.VarChar(16)
+  assignedTo            BigInt?
+  resolvedAt            DateTime?
+  replies               FeedbackReply[]
+  events                FeedbackEvent[]
+  createdAt             DateTime        @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([notifiedAt, createdAt, id])
+  @@index([deliveryStatus, notifiedAt, createdAt, id])
+}
+
+model CommandReceipt {
+  updateId  Int      @id
+  result    Json
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model RuntimeHeartbeat {
+  id         String   @id
+  kind       String   @db.VarChar(16)
+  lastSeenAt DateTime @default(now())
+
+  @@index([kind, lastSeenAt])
+}
+
+model FeedbackReply {
+  id                    String    @id @default(cuid())
+  feedbackId            String
+  feedback              Feedback  @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  sourceUpdateId        Int       @unique
+  text                  String    @db.VarChar(2000)
+  notifiedAt            DateTime?
+  deliveryLeaseToken    String?   @db.VarChar(36)
+  deliveryLeaseUntil    DateTime?
+  deliveryAttempts      Int       @default(0)
+  deliveryStatus        String    @default("pending") @db.VarChar(16)
+  lastDeliveryErrorCode Int?
+  lastDeliveryErrorAt   DateTime?
+  createdAt             DateTime  @default(now())
+
+  @@index([feedbackId, createdAt, id])
+  @@index([deliveryStatus, notifiedAt, createdAt, id])
+}
+
+model FeedbackEvent {
+  id             String   @id @default(cuid())
+  feedbackId     String
+  feedback       Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  action         String   @db.VarChar(32)
+  actorId        BigInt
+  sourceUpdateId Int      @unique
+  createdAt      DateTime @default(now())
+
+  @@index([feedbackId, createdAt])
+}

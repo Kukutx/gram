@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+!.env.gcp.example
+src/generated/prisma/
+coverage/
+.vscode/
+.idea/
+.DS_Store
+*.log
+pnpm-debug.log*
+
+# Temporary GCP OIDC credential output; never commit or bake into images.
+gha-creds-*.json
+deployment-record.json

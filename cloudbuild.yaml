@@ -1,0 +1,22 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build-bot
+    args: [build, --build-arg, 'SOURCE_REVISION=${_SOURCE_REVISION}', --tag, '${_BOT_IMAGE}', .]
+  - name: gcr.io/cloud-builders/docker
+    id: build-migrator
+    args:
+      [
+        build,
+        --build-arg,
+        'SOURCE_REVISION=${_SOURCE_REVISION}',
+        --target,
+        migrations,
+        --tag,
+        '${_MIGRATION_IMAGE}',
+        .,
+      ]
+substitutions:
+  _SOURCE_REVISION: local
+images:
+  - '${_BOT_IMAGE}'
+  - '${_MIGRATION_IMAGE}'
