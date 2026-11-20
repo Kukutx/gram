@@ -25,6 +25,8 @@ const BOT_ID = 123456789;
 const user = randomInt(1_000_000_000, 1_500_000_000);
 const admin = user + 1;
 const other = user + 2;
+const stranger = user + 3; // no ticket at first
+const blockedUser = user + 4; // a chat of its own: older sends to `user` would go first
 const group = -randomInt(1_000_000_000_000, 1_900_000_000_000);
 let seq = randomInt(300_000_000, 600_000_000);
 const next = () => ++seq;
@@ -84,6 +86,14 @@ function callback(from: number, data: string, chat: object = privateChat(from)):
   } as Update;
 }
 
+/** A tap on a button of the bot's prompt that quoted (replied to) `source`. */
+function offerTap(from: number, data: string, source: Update): Update {
+  const update = callback(from, data);
+  const tapped = update.callback_query!.message as unknown as Record<string, unknown>;
+  tapped.reply_to_message = source.message;
+  return update;
+}
+
 function makeBot(config: AppConfig, telegram = recordingTelegram()) {
   const bot = createBot({ config, db, logger });
   bot.botInfo = {
@@ -124,7 +134,7 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
     await db.$connect();
   });
   afterAll(async () => {
-    for (const id of [user, admin, other]) await deleteMyData(db, id);
+    for (const id of [user, admin, other, stranger, blockedUser]) await deleteMyData(db, id);
     await db.delivery.deleteMany({ where: { chatId: BigInt(group) } });
     await db.$disconnect();
   });
@@ -272,34 +282,132 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
     ).toBe(1);
   });
 
-  it('continues a ticket in progress from a plain message, and points to /feedback otherwise', async () => {
+  it('answers status commands with the outcome and next-step buttons, and tells the user', async () => {
     const config: AppConfig = { ...base, ADMIN_IDS: [admin] };
     const { bot, telegram } = makeBot(config);
-    const stranger = other + 100;
-    await bot.handleUpdate(message(stranger, { text: 'Hello?' }));
-    expect(replies(telegram).at(-1)).toContain('/feedback');
-    await touchUser(db, person(stranger));
-    const opened = await openTicket(db, stranger, next(), { text: 'First', attachment: null }, [], {
-      requireAwaiting: false,
-    });
+    await touchUser(db, person(other));
+    const opened = await openTicket(
+      db,
+      other,
+      next(),
+      { text: 'The printer is on fire, please help', attachment: null },
+      [],
+      { requireAwaiting: false },
+    );
     if (opened.kind !== 'created') throw new Error('expected a ticket');
+    const n = opened.number;
+    const last = () => telegram.last('sendMessage')!.payload;
+    const buttons = () => JSON.stringify(last().reply_markup);
+
+    await bot.handleUpdate(message(admin, { text: `/assign ${n}` }));
+    expect(last().text).toBe(`Ticket #${n} → In progress`);
+    expect(buttons()).toContain(`tk:${n}:resolved`);
+    expect(buttons()).not.toContain(`tk:${n}:assign`);
+    await bot.handleUpdate(message(admin, { text: `/assign ${n}` }));
+    expect(last().text).toBe(`Ticket #${n} is already “In progress”; nothing changed.`);
+    await bot.handleUpdate(message(admin, { text: `/set_status ${n} resolved` }));
+    expect(last().text).toBe(`Ticket #${n} → Resolved`);
+    expect(buttons()).toContain(`tk:${n}:open`);
+
+    // The user hears about each real status change, starting with "someone is on it".
+    const notices = await db.ticketMessage.findMany({
+      where: { ticketId: opened.ticketId, authorId: 0n },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(notices.map((m) => m.text)).toEqual([
+      expect.stringContaining('started working on your ticket'),
+      expect.stringContaining('marked as resolved'),
+    ]);
+
+    // Ticket views count and list only the conversation; the history shows the changes.
+    await bot.handleUpdate(message(admin, { text: `/ticket ${n}` }));
+    expect(last().text).toContain('Messages: 1 (latest 1 shown)');
+    expect(last().text).not.toContain('started working');
+    expect(buttons()).toContain(`tk:${n}:closed`);
+    await bot.handleUpdate(message(other, { text: '/my_feedbacks' }));
+    expect(last().text).toMatch(new RegExp(`#${n} · Resolved · .* · 1 messages`));
+
+    // Search shows who wrote it and the words around the match.
+    await bot.handleUpdate(message(admin, { text: '/search ON FIRE' }));
+    expect(last().text).toContain(`#${n} [Resolved] User ${other} (${other})`);
+    expect(last().text).toContain('The printer is on fire, please help');
+  });
+
+  it('continues a ticket in progress from a plain message, and offers to send anything else', async () => {
+    const config: AppConfig = { ...base, ADMIN_IDS: [admin] };
+    const { bot, telegram } = makeBot(config);
+    const ticketsOf = (id: number) =>
+      db.ticket.findMany({
+        where: { user: { telegramId: BigInt(id) } },
+        include: { messages: { orderBy: { createdAt: 'asc' } } },
+      });
+
+    // A message outside any ticket is not lost: the reply offers to send exactly that message.
+    const hello = message(stranger, { text: 'Hello?' });
+    await bot.handleUpdate(hello);
+    const prompt = telegram.last('sendMessage')!.payload;
+    expect(String(prompt.text)).toContain('Send this message to support?');
+    expect(prompt.reply_parameters).toMatchObject({ message_id: hello.message!.message_id });
+    expect(JSON.stringify(prompt.reply_markup)).toContain(`uf:new:${hello.update_id}`);
+    expect(await ticketsOf(stranger)).toHaveLength(0);
+
+    // One tap opens the ticket with that message; a double tap does not open a second one.
+    const tap = () => bot.handleUpdate(offerTap(stranger, `uf:new:${hello.update_id}`, hello));
+    await tap();
+    expect(String(telegram.last('editMessageText')!.payload.text)).toMatch(/^Received: ticket #\d+/);
+    await tap();
+    const [ticket, ...extra] = await ticketsOf(stranger);
+    expect(extra).toHaveLength(0);
+    expect(ticket!.messages.map((m) => m.text)).toEqual(['Hello?']);
+    expect(
+      await db.delivery.count({ where: { chatId: BigInt(admin), messageId: ticket!.messages[0]!.id } }),
+    ).toBe(1);
+
     await bot.handleUpdate(message(stranger, { text: 'One more detail' }));
-    expect(replies(telegram).at(-1)).toContain(`#${opened.number}`);
-    expect(await db.ticketMessage.count({ where: { ticketId: opened.ticketId } })).toBe(2);
+    expect(replies(telegram).at(-1)).toContain(`#${ticket!.number}`);
+    expect(await db.ticketMessage.count({ where: { ticketId: ticket!.id } })).toBe(2);
     // Admins are notified of the follow-up.
     expect(
       await db.delivery.count({
         where: {
           chatId: BigInt(admin),
-          message: { ticketId: opened.ticketId, text: 'One more detail' },
+          message: { ticketId: ticket!.id, text: 'One more detail' },
         },
       }),
     ).toBe(1);
-    // Once resolved, a plain message no longer reopens it implicitly.
-    await db.ticket.update({ where: { id: opened.ticketId }, data: { status: 'resolved' } });
-    await bot.handleUpdate(message(stranger, { text: 'Unrelated' }));
-    expect(replies(telegram).at(-1)).toContain('/feedback');
-    expect(await db.ticketMessage.count({ where: { ticketId: opened.ticketId } })).toBe(2);
+
+    // Once resolved, a plain message does not reopen it implicitly ("thanks!"): the user picks.
+    await db.ticket.update({
+      where: { id: ticket!.id },
+      data: { status: 'resolved', resolvedAt: new Date() },
+    });
+    const again = message(stranger, { text: 'It broke again' });
+    await bot.handleUpdate(again);
+    const choice = telegram.last('sendMessage')!.payload;
+    expect(String(choice.text)).toContain(`#${ticket!.number} is resolved`);
+    const add = `uf:add:${again.update_id}:${ticket!.number}`;
+    expect(JSON.stringify(choice.reply_markup)).toContain(add);
+    expect(JSON.stringify(choice.reply_markup)).toContain(`uf:new:${again.update_id}`);
+    expect(await db.ticketMessage.count({ where: { ticketId: ticket!.id } })).toBe(2);
+    await bot.handleUpdate(offerTap(stranger, add, again));
+    expect(String(telegram.last('editMessageText')!.payload.text)).toContain(
+      `Added to ticket #${ticket!.number}`,
+    );
+    const reopened = await db.ticket.findUniqueOrThrow({ where: { id: ticket!.id } });
+    expect(reopened.status).toBe('open');
+    expect(await db.ticketMessage.count({ where: { ticketId: ticket!.id } })).toBe(3);
+
+    // Buttons cannot reach another user's ticket, or submit another user's message.
+    const othersBefore = (await ticketsOf(other)).length;
+    const mine = message(other, { text: 'Not yours' });
+    await bot.handleUpdate(offerTap(other, `uf:add:${mine.update_id}:${ticket!.number}`, mine));
+    expect(telegram.last('answerCallbackQuery')!.payload.text).toBe(
+      'Ticket does not exist or was erased.',
+    );
+    await bot.handleUpdate(offerTap(other, `uf:new:${hello.update_id}`, hello));
+    expect(String(telegram.last('answerCallbackQuery')!.payload.text)).toContain('expired');
+    expect(await db.ticketMessage.count({ where: { ticketId: ticket!.id } })).toBe(3);
+    expect(await ticketsOf(other)).toHaveLength(othersBefore);
   });
 
   it('bans by ticket number and silently ignores the banned user', async () => {
@@ -330,18 +438,26 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
 
   it('parks a reply to a user who blocked the bot and lets an operator retry it', async () => {
     const config: AppConfig = { ...base, ADMIN_IDS: [admin] };
-    await touchUser(db, person(user));
-    const opened = await openTicket(db, user, next(), { text: 'Blocked later', attachment: null }, [], {
-      requireAwaiting: false,
-    });
+    await touchUser(db, person(blockedUser));
+    const opened = await openTicket(
+      db,
+      blockedUser,
+      next(),
+      { text: 'Blocked later', attachment: null },
+      [],
+      {
+        requireAwaiting: false,
+      },
+    );
     if (opened.kind !== 'created') throw new Error('expected a ticket');
-    await addStaffMessage(
+    const reply = await addStaffMessage(
       db,
       admin,
       next(),
       { id: opened.ticketId },
       { text: 'Answer', attachment: null },
     );
+    if (reply.kind !== 'queued') throw new Error('expected a queued reply');
     const api = new Api(config.BOT_TOKEN);
     const blocked = recordingTelegram({
       fail: () => ({
@@ -352,9 +468,7 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
     });
     api.config.use(blocked.transformer);
     const token = randomUUID();
-    const row = await db.delivery.findFirstOrThrow({
-      where: { chatId: BigInt(user), status: 'pending' },
-    });
+    const row = await db.delivery.findFirstOrThrow({ where: { messageId: reply.messageId } });
     const claimed = await claimDeliveries(db, token, 500);
     for (const id of claimed)
       if (id === row.id)

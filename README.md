@@ -6,7 +6,7 @@ TypeScript / Node.js 24 / grammY / Fastify / PostgreSQL / Prisma。用户在私�
 
 ## 功能
 
-- 用户：`/feedback` 提交（或 `INTAKE_MODE=direct` 直接发消息），支持图片、文件、语音、视频等；工单处理期间直接发消息或「回复」客服消息即可补充；`/my_feedbacks`、`/ticket <编号>` 查看进度；中英双语；资料导出与一次性确认删除。
+- 用户：`/feedback` 提交（或 `INTAKE_MODE=direct` 直接发消息），支持图片、文件、语音、视频等；随手发的消息会带「发给客服」按钮，一点即提交；工单处理期间直接发消息或「回复」客服消息即可补充；`/my_feedbacks`、`/ticket <编号>` 查看进度；中英双语；资料导出与一次性确认删除。
 - 客服：多个管理员（`ADMIN_IDS`）或一个客服群（`ADMIN_CHAT_ID`），群可开「每个工单一个话题」（`ADMIN_USE_TOPICS`）。直接回复通知或在话题里打字就是回复用户；通知上的按钮跟随工单状态（受理 / 已解决 / 结案 / 重新打开）。
 - 管理命令：`/tickets`（分页筛选）、`/ticket`、`/search`、`/reply`、`/assign`、`/resolve`、`/close`、`/reopen`、`/set_status`、`/ban`、`/unban`、`/deliveries`、`/delivery`、`/stats`、`/status`。工单用短编号 `#12`，在话题里或回复通知时可省略。
 - 可靠性：命令回执与按用户串行化防重放；发件箱按聊天保序、跨聊天并行，`LISTEN/NOTIFY` 即时唤醒，指数退避重试，永久失败停放待人工处理。

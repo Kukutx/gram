@@ -114,8 +114,11 @@ suite('worker lifecycle with PostgreSQL', () => {
   it('retries temporary Telegram failures from the outbox without losing the message', async () => {
     let failures = 1;
     const telegram = recordingTelegram({
+      // Only this test's message fails: rows other tests left behind are sent normally.
       fail: (call) =>
-        call.method === 'sendMessage' && failures-- > 0
+        call.method === 'sendMessage' &&
+        String(call.payload.text).includes('flaky network') &&
+        failures-- > 0
           ? { ok: false, error_code: 502, description: 'Bad Gateway' }
           : undefined,
     });

@@ -17,7 +17,7 @@ import {
   type DeliveryAction,
   type StatusAction,
 } from '../../db/tickets.ts';
-import { authorLabel } from '../../delivery/sender.ts';
+import { authorLabel, ticketKeyboard } from '../../delivery/sender.ts';
 import { validateFeedback } from '../../domain/feedback.ts';
 import {
   deliveryStatusLabel,
@@ -30,7 +30,8 @@ import type { TicketStatus } from '../../generated/prisma/client.ts';
 import { operationsHealth } from '../../observability/operations.ts';
 import type { BotContext, BotDeps } from '../context.ts';
 import { statusNotice } from '../recipients.ts';
-import { contentSummary, messageLines, shortTime } from '../render.ts';
+import { contentSummary, formatDuration, messageLines, shortTime, snippetAround } from '../render.ts';
+import { describeChange } from '../ticket-actions.ts';
 import { resolveTicketRef } from '../ticket-ref.ts';
 
 type ListFilter = TicketStatus | 'active' | 'all';
@@ -42,13 +43,6 @@ const STATUS_COMMANDS = {
   close: 'closed',
   reopen: 'open',
 } as const satisfies Record<string, StatusAction>;
-
-const CHANGE_REPLIES = {
-  saved: 'ticketUpdated',
-  missing: 'ticketMissing',
-  unchanged: 'ticketUnchanged',
-  stale: 'alreadyHandled',
-} as const;
 
 type AdminContext = BotContext & { from: NonNullable<BotContext['from']>; match: string };
 
@@ -176,6 +170,7 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
               )
               .join(' → ') || none,
         }),
+        ticketKeyboard(ctx.lang, ticket.number, ticket.status),
       );
     },
     { userFallback: true },
@@ -186,11 +181,16 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
     if (query.length < 2) return ctx.reply(ctx.t('searchUsage'));
     const rows = await searchTickets(db, query.slice(0, 100));
     if (!rows.length) return ctx.reply(ctx.t('searchEmpty'));
-    const lines = rows.map(
-      (row) =>
-        `#${row.number} [${ticketStatusLabel(ctx.lang, row.status)}] ${shortTime(row.lastMessageAt, config.TIME_ZONE)}`,
+    const lines = rows.map((row) =>
+      ctx.t('searchRow', {
+        number: row.number,
+        status: ticketStatusLabel(ctx.lang, row.status),
+        author: authorLabel(row.user),
+        time: shortTime(row.lastMessageAt, config.TIME_ZONE),
+        snippet: snippetAround(row.messages[0]?.text ?? '', query, 120) || '…',
+      }),
     );
-    await send(ctx, `${ctx.t('searchTitle', { query: query.slice(0, 100) })}\n${lines.join('\n')}`);
+    await send(ctx, `${ctx.t('searchTitle', { query: query.slice(0, 100) })}\n\n${lines.join('\n\n')}`);
   });
 
   admin('reply', async (ctx) => {
@@ -214,7 +214,8 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
       const where = await target(ctx, ctx.match);
       if (!where) return ctx.reply(ctx.t('ticketCommandUsage', { command }));
       const result = await changeTicket(db, ctx.from.id, ctx.update.update_id, where, action, notice);
-      await ctx.reply(ctx.t(CHANGE_REPLIES[result]));
+      const { text, keyboard } = await describeChange(ctx, db, where, result, ctx.lang);
+      await send(ctx, text, keyboard);
     });
   }
 
@@ -233,7 +234,8 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
       status as TicketStatus,
       notice,
     );
-    await ctx.reply(ctx.t(CHANGE_REPLIES[result]));
+    const { text, keyboard } = await describeChange(ctx, db, where, result, ctx.lang);
+    await send(ctx, text, keyboard);
   });
 
   /** `#12` means "the owner of ticket 12"; bare digits are a Telegram user ID. */
@@ -318,6 +320,8 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
     await send(
       ctx,
       ctx.t('status', {
+        version: config.APP_VERSION ?? 'dev',
+        uptime: formatDuration(ctx.t, process.uptime()),
         pending: health.pending,
         health: outboxHealthLabel(ctx.lang, health.status),
         oldest:

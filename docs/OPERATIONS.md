@@ -10,7 +10,7 @@ Bot 和 Worker 两个进程都要一直运行。Worker 停了，用户提交的�
 | `/ready`                     | 数据库能否查询                                             | 无                     |
 | `/ops/health`                | Worker/分发/清理心跳是否新鲜、停放数、积压和最早待发时间   | `METRICS_TOKEN` Bearer |
 | `/metrics`                   | Prometheus 指标（含 `grammy_bot_delivery_outcomes_total`） | `METRICS_TOKEN` Bearer |
-| `/status`（Telegram 管理员） | 与 `/ops/health` 相同的信息                                | 管理员                 |
+| `/status`（Telegram 管理员） | 运行版本和时长，以及与 `/ops/health` 相同的信息            | 管理员                 |
 | `doctor`                     | 配置、数据库、迁移、触发器、Telegram、客服群权限           | 运行环境               |
 | `outbox:status`              | 发件箱按状态统计；不健康时退出码 2                         | 运行环境               |
 

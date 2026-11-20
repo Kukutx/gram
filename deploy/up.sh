@@ -24,6 +24,7 @@ if [[ "$mode" == webhook ]]; then
 fi
 
 export GRAM_IMAGE_TAG="${GRAM_IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo local)}"
+export GRAM_VERSION="${GRAM_VERSION:-$(git log -1 --format='%h %cs' 2>/dev/null || echo "$GRAM_IMAGE_TAG")}"
 echo "==> Building images ($GRAM_IMAGE_TAG)"
 compose build
 echo '==> Starting database, migrations, bot and worker'

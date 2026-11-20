@@ -12,6 +12,13 @@ export const en: Record<keyof typeof zh, string> = {
   ping: 'pong ✅',
   id: 'Your ID: {userId}\nCurrent chat ID: {chatId}',
   unknown: 'Send /feedback to contact support, or /help to see all commands.',
+  offerSubmit: 'Send this message to support? Tap the button below. All commands: /help',
+  offerResolved:
+    'Your ticket #{number} is resolved. Is this message about the same problem, or a new one?',
+  offerExpired: 'This prompt has expired. Please send your message again.',
+  btnSubmitFeedback: '📝 Send to support',
+  btnNewFeedback: '📝 Submit as a new issue',
+  btnAddToTicket: '🔄 Add to ticket #{number}',
   privateOnly: 'Please use this command in a private chat with the bot.',
   forbidden: 'You are not authorized to use this command.',
   alreadyHandled: 'This request was processed or superseded. Check the current state.',
@@ -54,7 +61,7 @@ export const en: Record<keyof typeof zh, string> = {
   ticketCreated:
     'Received: ticket #{number}.\nReplies from support arrive here; to add details while it is open, just send them.\nTrack progress: /my_feedbacks',
   followUpSaved: 'Added to ticket #{number}.',
-  feedbackExpired: 'Feedback expired. Send /feedback to start again.',
+  feedbackExpired: 'The feedback prompt timed out. Send this message to support? Tap the button below.',
   feedbackEmpty: 'The message cannot be empty. Please send it again.',
   feedbackTooLong: 'Text exceeds 4000 characters. Please shorten it.',
   feedbackCommand: 'Feedback is still pending. Send your message or /cancel.',
@@ -85,6 +92,8 @@ export const en: Record<keyof typeof zh, string> = {
   notifyNewTicket: '🆕 New ticket #{number}\nFrom: {author}\n\n',
   notifyFollowUp: '💬 Ticket #{number} ({status}) · {author}\n\n',
   notifyReply: '🛟 Support reply · ticket #{number}\n\n',
+  statusNoticeInProgress:
+    'Support has started working on your ticket #{number}; replies will arrive here.',
   statusNoticeResolved:
     'Your ticket #{number} was marked as resolved. If something is still wrong, just reply to this message.',
   statusNoticeClosed: 'Your ticket #{number} was closed. Send /feedback whenever you need help again.',
@@ -103,10 +112,9 @@ export const en: Record<keyof typeof zh, string> = {
   searchUsage: 'Usage: /search <keywords>',
   banUsage: 'Usage: /ban <#ticket or user ID>; /unban works the same way',
   ticketMissing: 'Ticket does not exist or was erased.',
-  ticketUpdated: 'Ticket updated.',
-  ticketUnchanged: 'The ticket already has that status.',
+  ticketUnchanged: 'Ticket #{number} is already “{status}”; nothing changed.',
   ticketClosed: 'The ticket is closed. Use /reopen first.',
-  callbackDone: '#{number} → {status}',
+  callbackDone: 'Ticket #{number} → {status}',
   ticketDetail:
     'Ticket #{number}\nStatus: {status}\nUser: {author}{banned}\nAssignee: {assignee}\nMessages: {count} (latest {shown} shown)\n\n{messages}\n\nHistory: {history}',
   bannedMark: ' (banned)',
@@ -121,6 +129,7 @@ export const en: Record<keyof typeof zh, string> = {
   filterActive: 'active',
   searchEmpty: 'No matching tickets.',
   searchTitle: 'Results for “{query}”:',
+  searchRow: '#{number} [{status}] {author} · {time}\n{snippet}',
   banned: 'User banned; their messages will be ignored.',
   unbanned: 'User unbanned.',
   userMissing: 'User not found.',
@@ -134,8 +143,11 @@ export const en: Record<keyof typeof zh, string> = {
   stats:
     'Users: {users} ({banned} banned)\nTickets: open {open} · in progress {inProgress} · resolved {resolved} · closed {closed}\nMessages waiting to send: {pending}',
   status:
-    'Waiting to send: {pending}\nBacklog severity: {health}\nOldest pending: {oldest}\nBlocked: {blocked}\nWorker heartbeat: {worker}\nSend heartbeat: {dispatch}\nRetention heartbeat: {retention}',
+    'Version: {version} (up {uptime})\nWaiting to send: {pending}\nBacklog severity: {health}\nOldest pending: {oldest}\nBlocked: {blocked}\nWorker heartbeat: {worker}\nSend heartbeat: {dispatch}\nRetention heartbeat: {retention}',
   secondsAgo: '{seconds} s ago',
+  durationMinutes: '{minutes} min',
+  durationHours: '{hours} h {minutes} min',
+  durationDays: '{days} d {hours} h',
   healthEmpty: 'none',
   healthPending: 'normal',
   healthWarning: 'slow (over 10 min)',

@@ -11,7 +11,9 @@ import {
   consumeDeleteConfirmation,
   issueDeleteConfirmation,
 } from '../../privacy/delete-confirm.ts';
+import { LANGUAGE_LABELS, normalizeLanguage } from '../../domain/i18n.ts';
 import type { BotContext, BotDeps } from '../context.ts';
+import { shortTime } from '../render.ts';
 
 const PRIVACY_COMMANDS = ['my_data', 'export_my_data', 'export_my_replies', 'delete_my_data'];
 
@@ -29,9 +31,9 @@ export function privacyFeature({ config, db, rateLimiter, logger }: BotDeps): Co
         userId: ctx.from.id,
         ticketCount: data.ticketCount,
         messageCount: data.messageCount,
-        createdAt: data.createdAt.toISOString(),
-        lastSeenAt: data.lastSeenAt.toISOString(),
-        language: data.language,
+        createdAt: shortTime(data.createdAt, config.TIME_ZONE),
+        lastSeenAt: shortTime(data.lastSeenAt, config.TIME_ZONE),
+        language: LANGUAGE_LABELS[normalizeLanguage(data.language, config.DEFAULT_LANGUAGE)],
       }),
     );
   });

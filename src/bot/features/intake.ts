@@ -1,4 +1,4 @@
-import { Composer } from 'grammy';
+import { Composer, InlineKeyboard } from 'grammy';
 import { beginFeedback, cancelFeedback, expireFeedback } from '../../db/users.ts';
 import {
   addUserMessage,
@@ -6,10 +6,12 @@ import {
   latestActiveTicket,
   myTickets,
   openTicket,
+  ownTicket,
+  recentlyResolvedTicket,
   ticketForDeliveredMessage,
   type OpenResult,
 } from '../../db/tickets.ts';
-import { extractContent, validateContent } from '../../domain/content.ts';
+import { extractContent, validateContent, type MessageContent } from '../../domain/content.ts';
 import { ticketStatusLabel } from '../../domain/i18n.ts';
 import { parseTicketRef } from '../../domain/feedback.ts';
 import { truncateTelegramText } from '../../domain/telegram-text.ts';
@@ -22,6 +24,9 @@ const VALIDATION_KEYS = {
   too_long: 'feedbackTooLong',
   command: 'feedbackCommand',
 } as const;
+
+/** A message sent this soon after a ticket was resolved may be about the same problem. */
+const RESOLVED_FOLLOW_UP_MS = 7 * 24 * 60 * 60_000;
 
 function feedbackState(ctx: BotContext): 'none' | 'active' | 'expired' {
   const user = ctx.user;
@@ -87,20 +92,92 @@ export function intakeFeature({ config, db }: BotDeps): Composer<BotContext> {
     );
   });
 
-  async function acknowledge(ctx: BotContext, result: OpenResult): Promise<unknown> {
+  function ackText(ctx: BotContext, result: OpenResult): string {
     switch (result.kind) {
       case 'created':
-        return ctx.reply(ctx.t('ticketCreated', { number: result.number }));
+        return ctx.t('ticketCreated', { number: result.number });
       case 'appended':
-        return ctx.reply(ctx.t('followUpSaved', { number: result.number }));
+        return ctx.t('followUpSaved', { number: result.number });
       case 'duplicate':
-        return ctx.reply(ctx.t('feedbackSaved')); // Telegram retried an update we already stored.
+        return ctx.t('feedbackSaved'); // Telegram retried an update we already stored.
       case 'stale':
-        return ctx.reply(ctx.t('alreadyHandled'));
+        return ctx.t('alreadyHandled');
       default:
-        return ctx.reply(ctx.t('unknown'));
+        return ctx.t('unknown');
     }
   }
+  const acknowledge = (ctx: BotContext, result: OpenResult) => ctx.reply(ackText(ctx, result));
+
+  /**
+   * Command mode, a message outside any ticket: instead of only pointing at /feedback, offer
+   * to send this very message, or to add it to a recently resolved ticket. The buttons carry
+   * the message's update ID, so a double tap cannot create two tickets.
+   */
+  async function offer(
+    ctx: BotContext & { from: NonNullable<BotContext['from']> },
+    messageId: number,
+    content: MessageContent | null,
+    intro: 'offerSubmit' | 'feedbackExpired' = 'offerSubmit',
+  ): Promise<unknown> {
+    const validated = content ? validateContent(content) : null;
+    if (!validated?.ok) {
+      if (validated?.reason === 'too_long') return ctx.reply(ctx.t('feedbackTooLong'));
+      return ctx.reply(ctx.t(content ? 'unknown' : 'unsupportedContent'));
+    }
+    const updateId = ctx.update.update_id;
+    const resolved = await recentlyResolvedTicket(db, ctx.from.id, RESOLVED_FOLLOW_UP_MS);
+    const keyboard = new InlineKeyboard();
+    if (resolved)
+      keyboard
+        .text(
+          ctx.t('btnAddToTicket', { number: resolved.number }),
+          `uf:add:${updateId}:${resolved.number}`,
+        )
+        .row();
+    keyboard.text(ctx.t(resolved ? 'btnNewFeedback' : 'btnSubmitFeedback'), `uf:new:${updateId}`);
+    const text = resolved ? ctx.t('offerResolved', { number: resolved.number }) : ctx.t(intro);
+    return ctx.reply(text, {
+      reply_markup: keyboard,
+      reply_parameters: { message_id: messageId, allow_sending_without_reply: true },
+    });
+  }
+
+  // The offer's buttons: the message itself comes back as the prompt's reply_to_message.
+  pm.callbackQuery(/^uf:(new|add):(\d{1,15})(?::(\d{1,9}))?$/, async (ctx) => {
+    const [, kind, rawUpdate, rawNumber] = ctx.match;
+    const source = ctx.callbackQuery.message?.reply_to_message;
+    const content = source?.from?.id === ctx.from.id ? extractContent(source) : null;
+    const validated = content ? validateContent(content) : null;
+    if (!validated?.ok) {
+      await ctx.answerCallbackQuery({ text: ctx.t('offerExpired'), show_alert: true });
+      return ctx.editMessageReplyMarkup().catch(() => {});
+    }
+    const sourceUpdateId = Number(rawUpdate);
+    let result: OpenResult;
+    if (kind === 'add') {
+      const ticket = await ownTicket(db, ctx.from.id, Number(rawNumber));
+      if (!ticket) return ctx.answerCallbackQuery({ text: ctx.t('ticketMissing'), show_alert: true });
+      result = await addUserMessage(
+        db,
+        ctx.from.id,
+        ctx.update.update_id,
+        ticket.id,
+        validated.content,
+        recipients,
+        sourceUpdateId,
+      );
+    } else {
+      result = await openTicket(db, ctx.from.id, ctx.update.update_id, validated.content, recipients, {
+        requireAwaiting: false,
+        sourceUpdateId,
+      });
+    }
+    await ctx.answerCallbackQuery();
+    // A second tap finds the message already saved; the first one already updated the prompt.
+    if (result.kind === 'duplicate') return;
+    const text = ackText(ctx, result);
+    await ctx.editMessageText(text).catch(() => ctx.reply(text));
+  });
 
   pm.on('message', async (ctx) => {
     const updateId = ctx.update.update_id;
@@ -128,7 +205,8 @@ export function intakeFeature({ config, db }: BotDeps): Composer<BotContext> {
     // 2. A pending /feedback (or direct mode) opens a new ticket / continues the active one.
     if (state === 'expired') {
       await expireFeedback(db, ctx.from.id);
-      if (config.INTAKE_MODE === 'command') return ctx.reply(ctx.t('feedbackExpired'));
+      if (config.INTAKE_MODE === 'command')
+        return offer(ctx, ctx.message.message_id, content, 'feedbackExpired');
     }
     if (state === 'active' || config.INTAKE_MODE === 'direct') {
       if (!content) return ctx.reply(ctx.t('unsupportedContent'));
@@ -169,7 +247,9 @@ export function intakeFeature({ config, db }: BotDeps): Composer<BotContext> {
       where: { sourceUpdateId: updateId },
       select: { id: true },
     });
-    await ctx.reply(ctx.t(saved ? 'feedbackSaved' : 'unknown'));
+    if (saved) return ctx.reply(ctx.t('feedbackSaved'));
+    // 5. Nothing to continue: offer to send this message to support.
+    return offer(ctx, ctx.message.message_id, content);
   });
 
   return composer;
