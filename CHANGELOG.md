@@ -19,6 +19,7 @@
 ### 通用部署与文档
 
 - `deploy/compose.yaml` + `deploy/up.sh`：任意 Docker 主机一条命令完成构建、迁移、启动（健康检查）、命令菜单同步和自检；webhook 模式附带 Caddy 自动 HTTPS，只暴露 webhook 路径。`deploy/backup.sh` 定时备份并轮换。
+- GCP 免费服务器一键部署：在 Cloud Shell 运行 `deploy/gcp-free.sh`，自动建项目/绑结算、校验 Token、读取管理员 Telegram ID、在免费区域创建 e2-micro、安装并启动，设置费用提醒；重新运行即更新。`deploy/server-install.sh` 可在任意 Debian/Ubuntu 服务器上一条命令安装（交换空间、Docker、自动安全更新、每日备份、旧镜像清理）。
 - 运维命令移到 `src/cli/`，随镜像发布（`node dist/cli/doctor.js` 等），容器里也能自检。
 - GCP 发布脚本支持 `GCP_ADMIN_IDS`（多个）、`GCP_ADMIN_CHAT_ID`、`GCP_ADMIN_USE_TOPICS`、`GCP_INTAKE_MODE`、`GCP_DEFAULT_LANGUAGE`，并在任何云操作前校验。
 - 文档整合为 README、DEPLOY、GCP_DEPLOY、ARCHITECTURE、OPERATIONS、SECURITY、PRIVACY_EXPORT、RELEASE_POLICY；v1.x 文档移入 `docs/history/`。CI 去掉 Redis 服务。
