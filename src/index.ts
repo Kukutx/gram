@@ -66,9 +66,10 @@ async function main(): Promise<void> {
     notifications = createNotifications(config, logger);
     rateLimiter = createRateLimiter(config, logger);
     bot = createBot({ config, db, logger, rateLimiter, ...(notifications ? { notifications } : {}) });
-    app = config.BOT_MODE === 'webhook' ? createServer({ config, db, bot, logger }) : undefined;
+    // Health/metrics are served in both modes so any orchestrator can probe the process.
+    app = createServer({ config, db, bot, logger });
 
-    if (app) {
+    if (config.BOT_MODE === 'webhook') {
       // Invalid Bot Token / unavailable Telegram API must fail before accepting webhooks.
       await bot.init();
       if (closing) return;
@@ -76,10 +77,11 @@ async function main(): Promise<void> {
       await app.listen({ port: config.PORT, host: '0.0.0.0' });
       logger.info({ port: config.PORT, webhookPath: config.WEBHOOK_PATH }, 'Webhook server ready');
     } else {
+      await app.listen({ port: config.PORT, host: '0.0.0.0' });
       // Polling is mutually exclusive with registered Telegram webhooks.
       await bot.api.deleteWebhook({ drop_pending_updates: false });
       if (closing) return;
-      logger.info('Bot starting in long-polling mode');
+      logger.info({ port: config.PORT }, 'Bot starting in long-polling mode');
       await bot.start({ onStart: (info) => logger.info({ username: info.username }, 'Bot started') });
     }
   } catch (error) {

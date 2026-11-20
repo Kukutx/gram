@@ -1,3 +1,4 @@
+import { LANGUAGES } from '../domain/i18n.ts';
 import { z } from 'zod';
 
 const optionalTrimmed = z.preprocess(
@@ -28,6 +29,10 @@ const configSchema = z
     PRIVACY_POLICY_URL: optionalTrimmed,
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+    /** Language for users without a stored preference and for admin notifications. */
+    DEFAULT_LANGUAGE: z.enum(LANGUAGES).default('zh'),
+    /** Optional HTTP port for the worker's /live and /ready probes (0 disables). */
+    WORKER_HEALTH_PORT: z.coerce.number().int().min(0).max(65535).default(0),
     RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(0).max(600).default(0),
     FEEDBACK_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(0),
   })

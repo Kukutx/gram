@@ -15,3 +15,6 @@ pnpm-debug.log*
 # Temporary GCP OIDC credential output; never commit or bake into images.
 gha-creds-*.json
 deployment-record.json
+
+# Local Redis snapshot
+dump.rdb

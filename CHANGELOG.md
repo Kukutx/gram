@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- 修复：long polling 模式下任一更新处理出错会让 grammY 停止轮询、进程退出；现在记录并跳过该更新。
+- 性能：每条更新只加载一次用户（与命令回执并行查询），`lastSeenAt` 每 5 分钟最多写一次；语言不再在同一更新中重复查询；`/ops/health` 与 `/metrics` 的健康查询缓存 5 秒。
+- 结构：`create-bot.ts` 拆分为中间件和 general / privacy / feedback / admin 四个功能模块；投递租约逻辑合并为一份（反馈与回复共用），时间常量集中到 `config/constants.ts`。
+- 多语言：所有用户和管理员可见文本移入语言包（含通知、工单详情、投递状态），英文包缺键或占位符不一致会在类型检查或测试中失败；新增 `DEFAULT_LANGUAGE`。
+- 命令：`/help` 与 Telegram 命令菜单由同一注册表生成，管理员命令只对管理员显示。
+- 运维：polling 模式也提供 `/live`、`/ready`、`/ops/health`、`/metrics`；Worker 可通过 `WORKER_HEALTH_PORT` 暴露探活端口。
+- CI：只在 develop/main 推送和 PR 上运行并取消过期 PR 运行；安全扫描改为监听 develop。删除已失效的 `MANIFEST.sha256`。
+
 ## v1.5.0 — 2026-11-09
 
 - 修复 ioredis/NodeNext、Fastify unknown 错误类型、Webhook URL 可选性、Vitest matcher 和 ESLint；生成真实 pnpm 锁文件并修复 minimatch 开发依赖公告。

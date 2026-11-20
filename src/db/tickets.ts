@@ -132,3 +132,24 @@ export async function controlDelivery(
     return 'saved';
   });
 }
+
+/** Oldest blocked/paused notifications of both outboxes, for the /deliveries operator view. */
+export async function listDeliveryProblems(db: Database, limit = 10) {
+  const where = { deliveryStatus: { in: ['blocked', 'paused'] } };
+  const select = {
+    id: true,
+    deliveryStatus: true,
+    lastDeliveryErrorCode: true,
+    deliveryAttempts: true,
+  } as const;
+  const [feedback, replies] = await Promise.all([
+    db.feedback.findMany({ where, orderBy: { createdAt: 'asc' }, take: limit, select }),
+    db.feedbackReply.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+      select: { ...select, feedbackId: true },
+    }),
+  ]);
+  return { feedback, replies };
+}

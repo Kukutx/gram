@@ -20,7 +20,7 @@ describe('Telegram outbound message bounds', () => {
 
   it('fits even unexpectedly oversized Unicode content within one Telegram notification', () => {
     const content = '🚀'.repeat(3_000);
-    const msg = buildFeedbackNotification('example', 'cuid01234', content);
+    const msg = buildFeedbackNotification('example', 'cuid01234', content, 'en');
     expect(msg.length).toBeLessThanOrEqual(TELEGRAM_TEXT_MAX_UNITS);
     expect(msg).toContain('ID: cuid01234');
     expect(msg.endsWith('…')).toBe(true);

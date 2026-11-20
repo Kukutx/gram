@@ -10,7 +10,8 @@ import * as Sentry from '@sentry/node';
 import { parseConfig, adminId, type AppConfig } from './config/env.ts';
 import { createPrisma, type Database } from './db/client.ts';
 import { purgeExpiredFeedback, RETENTION_BATCH_SIZE } from './maintenance/retention.ts';
-import { RECEIPT_RETENTION_MS } from './db/commands.ts';
+import { RECEIPT_RETENTION_MS } from './config/constants.ts';
+import { createServer } from './server.ts';
 import { createLogger, type Logger } from './observability/logger.ts';
 import { initMonitoring, reportError } from './observability/errors.ts';
 import { heartbeat, operationsHealth } from './observability/operations.ts';
@@ -30,6 +31,7 @@ export async function startWorker(config: AppConfig, db: Database, logger: Logge
   let producer: Redis | undefined;
   let queue: Queue<FeedbackJob> | undefined;
   let worker: Worker<FeedbackJob> | undefined;
+  let probes: ReturnType<typeof createServer> | undefined;
   let closing = false;
   const abort = new AbortController();
   const tasks: ReturnType<typeof scheduleTask>[] = [];
@@ -46,6 +48,7 @@ export async function startWorker(config: AppConfig, db: Database, logger: Logge
     const forceExit = setTimeout(() => process.exit(1), 9_000);
     forceExit.unref();
     try {
+      await withDeadline(probes?.close() ?? Promise.resolve(), 1_000).catch(failed);
       await withDeadline(Promise.all(tasks.map((task) => task.settled())), 1_500).catch(failed);
       await withDeadline(worker?.close() ?? Promise.resolve(), 1_500).catch(failed);
       await withDeadline(queue?.close() ?? Promise.resolve(), 1_000).catch(failed);
@@ -92,7 +95,8 @@ export async function startWorker(config: AppConfig, db: Database, logger: Logge
       });
       worker = new Worker<FeedbackJob>(
         FEEDBACK_QUEUE,
-        (job) => deliverNotification(db, api, admin, job.data, logger, abort.signal),
+        (job) =>
+          deliverNotification(db, api, admin, job.data, logger, abort.signal, config.DEFAULT_LANGUAGE),
         { connection: consumer, concurrency: 2 },
       );
       worker.on('error', failed);
@@ -192,7 +196,15 @@ export async function startWorker(config: AppConfig, db: Database, logger: Logge
                       2_000,
                     );
                   } else {
-                    await deliverNotification(db, api, admin, data, logger, abort.signal).catch(failed);
+                    await deliverNotification(
+                      db,
+                      api,
+                      admin,
+                      data,
+                      logger,
+                      abort.signal,
+                      config.DEFAULT_LANGUAGE,
+                    ).catch(failed);
                   }
                 }
               }
@@ -228,6 +240,11 @@ export async function startWorker(config: AppConfig, db: Database, logger: Logge
         failed,
       ),
     );
+    if (config.WORKER_HEALTH_PORT > 0) {
+      // Optional /live, /ready (and token-protected /ops/health, /metrics) for container probes.
+      probes = createServer({ config, db, logger });
+      await probes.listen({ port: config.WORKER_HEALTH_PORT, host: '0.0.0.0' });
+    }
     // Never await one task before registering the other schedules.
     tasks.forEach((task) => {
       void task.run();

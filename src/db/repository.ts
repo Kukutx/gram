@@ -2,22 +2,57 @@ import type { User as TelegramFrom } from 'grammy/types';
 import type { Database } from './client.ts';
 import { expiresInFifteenMinutes } from '../domain/feedback.ts';
 import { normalizeLanguage, type Language } from '../domain/i18n.ts';
-import { commandOnce, userMutation } from './commands.ts';
+import { commandOnce, userMutation, type Transaction } from './commands.ts';
+import { LAST_SEEN_REFRESH_MS, RECEIPT_RETENTION_MS } from '../config/constants.ts';
 
-export async function touchUser(db: Database, from: TelegramFrom) {
+const USER_SNAPSHOT = {
+  id: true,
+  telegramId: true,
+  username: true,
+  firstName: true,
+  language: true,
+  awaitingFeedback: true,
+  feedbackExpiresAt: true,
+  lastSeenAt: true,
+} as const;
+
+export type UserSnapshot = {
+  id: string;
+  telegramId: bigint;
+  username: string | null;
+  firstName: string | null;
+  language: string;
+  awaitingFeedback: boolean;
+  feedbackExpiresAt: Date | null;
+  lastSeenAt: Date;
+};
+
+/**
+ * Loads (and creates on first contact) the minimum profile needed per update.
+ * Unchanged profiles are written at most every LAST_SEEN_REFRESH_MS, so the
+ * common path is a single indexed read instead of an upsert per update.
+ */
+export async function touchUser(
+  db: Database,
+  from: TelegramFrom,
+  now: Date = new Date(),
+): Promise<UserSnapshot> {
+  const telegramId = BigInt(from.id);
+  const username = from.username ?? null;
+  const firstName = from.first_name ?? null;
+  const existing = await db.telegramUser.findUnique({ where: { telegramId }, select: USER_SNAPSHOT });
+  if (
+    existing &&
+    existing.username === username &&
+    existing.firstName === firstName &&
+    now.getTime() - existing.lastSeenAt.getTime() < LAST_SEEN_REFRESH_MS
+  )
+    return existing;
   return db.telegramUser.upsert({
-    where: { telegramId: BigInt(from.id) },
-    create: {
-      telegramId: BigInt(from.id),
-      username: from.username ?? null,
-      firstName: from.first_name ?? null,
-      language: normalizeLanguage(from.language_code),
-    },
-    update: {
-      username: from.username ?? null,
-      firstName: from.first_name ?? null,
-      lastSeenAt: new Date(),
-    },
+    where: { telegramId },
+    create: { telegramId, username, firstName, language: normalizeLanguage(from.language_code) },
+    update: { username, firstName, lastSeenAt: now },
+    select: USER_SNAPSHOT,
   });
 }
 
@@ -35,9 +70,7 @@ export async function setLanguage(
   language: Language,
   updateId?: number,
 ): Promise<void> {
-  const mutate = async (
-    tx: Database | import('../generated/prisma/client.ts').Prisma.TransactionClient,
-  ) => {
+  const mutate = async (tx: Database | Transaction) => {
     await tx.telegramUser.update({ where: { telegramId: BigInt(telegramId) }, data: { language } });
     return 'saved';
   };
@@ -46,9 +79,7 @@ export async function setLanguage(
 }
 
 export async function beginFeedback(db: Database, telegramId: number, updateId?: number): Promise<void> {
-  const mutate = async (
-    tx: Database | import('../generated/prisma/client.ts').Prisma.TransactionClient,
-  ) => {
+  const mutate = async (tx: Database | Transaction) => {
     await tx.telegramUser.update({
       where: { telegramId: BigInt(telegramId) },
       data: { awaitingFeedback: true, feedbackExpiresAt: expiresInFifteenMinutes() },
@@ -64,9 +95,7 @@ export async function cancelFeedback(
   telegramId: number,
   updateId?: number,
 ): Promise<boolean> {
-  const mutate = async (
-    tx: Database | import('../generated/prisma/client.ts').Prisma.TransactionClient,
-  ) => {
+  const mutate = async (tx: Database | Transaction) => {
     const updated = await tx.telegramUser.updateMany({
       where: { telegramId: BigInt(telegramId), awaitingFeedback: true },
       data: { awaitingFeedback: false, feedbackExpiresAt: null },
@@ -121,7 +150,7 @@ export async function consumeFeedback(
       userState?.lastStateUpdateId !== undefined &&
       userState.lastStateUpdateId > sourceUpdateId &&
       userState.lastStateUpdateAt &&
-      Date.now() - userState.lastStateUpdateAt.getTime() < 7 * 86_400_000
+      Date.now() - userState.lastStateUpdateAt.getTime() < RECEIPT_RETENTION_MS
     )
       return null;
 
