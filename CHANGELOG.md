@@ -28,6 +28,7 @@
   - `/search` 结果显示用户和命中位置附近的原文。
   - `/my_data` 的时间按 `TIME_ZONE` 显示、语言显示为名称；`/settings` 给当前语言打勾。
   - 按通知、`/ticket` 详情或状态命令回复上的按钮后，消息里写的状态也跟着改成新状态，不再只换按钮；新工单通知的标题也显示状态。
+  - 旧消息上的按钮如果已经不适用（比如工单已被别人结案后，再点旧通知上的「已解决」），不会再改动工单，只提示「已处理」并把消息更新为当前状态。
   - `/status` 第一行显示正在运行的版本（提交号和日期，由 `deploy/up.sh` 写入镜像的 `APP_VERSION`）和已运行时长，可以确认自动更新是否生效。
 - 依赖：TypeScript 6.0、Vitest 5、Sentry 11（隐私设置改用 `dataCollection`，仍然什么都不收集）、`actions/upload-artifact` v7。Dependabot 把小版本更新合成一个 PR，Node 大版本（镜像和 `@types/node`）不再自动提。
 - CI：修复 `pnpm audit` 报出的 Prisma 依赖 `effect` 漏洞（pnpm override）；两个集成测试不再受其他测试遗留的待发送消息影响。
