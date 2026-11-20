@@ -42,6 +42,5 @@ GRAM_OCPUS=1 GRAM_MEMORY_GB=6 bash <(curl -fsSL https://raw.githubusercontent.co
 
 ## 可以继续改进的地方（都不紧急）
 
-- 点了通知下方的按钮后，只更新按钮，通知正文里的状态文字还是旧的。
 - 几个旧的 Dependabot PR 已经过时，可以关掉，或者等 Dependabot 重新生成。
 - 计划搬进 "Viper" 单仓库；本仓库目前是备份。

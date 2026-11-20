@@ -14,14 +14,17 @@ import { CAPTIONED_TYPES, isAttachmentType, type AttachmentType } from '../domai
 import { normalizeLanguage, t, ticketStatusLabel, type Language } from '../domain/i18n.ts';
 import type { StatusAction } from '../db/tickets.ts';
 import type { TicketStatus } from '../generated/prisma/client.ts';
-import { truncateTelegramText, withHeader } from '../domain/telegram-text.ts';
+import {
+  TELEGRAM_CAPTION_MAX_UNITS,
+  truncateTelegramText,
+  withHeader,
+} from '../domain/telegram-text.ts';
 import { reportError } from '../observability/errors.ts';
 import { safeError, type Logger } from '../observability/logger.ts';
 
 export type SenderDeps = { db: Database; api: Api; config: AppConfig; logger: Logger };
 export type SendOutcome = 'sent' | 'retry' | 'blocked' | 'gone' | 'lost_lease';
 
-const CAPTION_MAX = 1024;
 /** Telegram rejects these for good: bad request, revoked token, bot blocked by the user. */
 const PERMANENT_ERROR_CODES = new Set([400, 401, 403]);
 
@@ -157,7 +160,7 @@ async function transmit(
     return { messageId: sent.message_id, threadId };
   }
   if (CAPTIONED_TYPES.has(type)) {
-    const caption = truncateTelegramText(p.header + text, CAPTION_MAX);
+    const caption = truncateTelegramText(p.header + text, TELEGRAM_CAPTION_MAX_UNITS);
     const sent = await MEDIA[type](
       deps.api,
       p.chatId,
