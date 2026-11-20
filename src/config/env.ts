@@ -4,6 +4,14 @@ import { LANGUAGES } from '../domain/i18n.ts';
 const blankToUndefined = (value: unknown) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 const optionalTrimmed = z.preprocess(blankToUndefined, z.string().trim().optional());
+const isTimeZone = (zone: string) => {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+};
 const booleanFlag = (fallback: boolean) =>
   z.preprocess((value) => {
     const v = blankToUndefined(value);
@@ -74,6 +82,15 @@ const configSchema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     /** Language for users without a stored preference and for admin notifications. */
     DEFAULT_LANGUAGE: z.enum(LANGUAGES).default('zh'),
+    /** IANA time zone for times shown in chats, e.g. Europe/Rome or Asia/Shanghai. */
+    TIME_ZONE: z.preprocess(
+      blankToUndefined,
+      z
+        .string()
+        .trim()
+        .refine(isTimeZone, 'Unknown time zone; use an IANA name such as Europe/Rome')
+        .default('UTC'),
+    ),
     /** Optional HTTP port for the worker's /live and /ready probes (0 disables). */
     WORKER_HEALTH_PORT: z.coerce.number().int().min(0).max(65535).default(0),
     /** Fallback outbox scan interval; LISTEN/NOTIFY normally wakes the worker immediately. */

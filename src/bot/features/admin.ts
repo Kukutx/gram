@@ -19,7 +19,7 @@ import {
 } from '../../db/tickets.ts';
 import { authorLabel } from '../../delivery/sender.ts';
 import { validateFeedback } from '../../domain/feedback.ts';
-import { deliveryStatusLabel, ticketStatusLabel } from '../../domain/i18n.ts';
+import { deliveryStatusLabel, outboxHealthLabel, ticketStatusLabel } from '../../domain/i18n.ts';
 import { truncateTelegramText } from '../../domain/telegram-text.ts';
 import type { TicketStatus } from '../../generated/prisma/client.ts';
 import { operationsHealth } from '../../observability/operations.ts';
@@ -99,7 +99,7 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
         number: row.number,
         status: ticketStatusLabel(ctx.lang, row.status),
         author: authorLabel(row.user),
-        time: shortTime(row.lastMessageAt),
+        time: shortTime(row.lastMessageAt, config.TIME_ZONE),
         summary: row.messages[0] ? contentSummary(ctx.t, row.messages[0], 120) : '…',
       }),
     );
@@ -154,8 +154,11 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
           assignee: ticket.assignedTo?.toString() ?? none,
           count: ticket._count.messages,
           shown: ticket.messages.length,
-          messages: messageLines(ctx.t, ticket.messages) || none,
-          history: ticket.events.map((e) => `${e.action}@${shortTime(e.createdAt)}`).join(', ') || none,
+          messages: messageLines(ctx.t, ticket.messages, config.TIME_ZONE) || none,
+          history:
+            ticket.events
+              .map((e) => `${e.action}@${shortTime(e.createdAt, config.TIME_ZONE)}`)
+              .join(', ') || none,
         }),
       );
     },
@@ -169,7 +172,7 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
     if (!rows.length) return ctx.reply(ctx.t('searchEmpty'));
     const lines = rows.map(
       (row) =>
-        `#${row.number} [${ticketStatusLabel(ctx.lang, row.status)}] ${shortTime(row.lastMessageAt)}`,
+        `#${row.number} [${ticketStatusLabel(ctx.lang, row.status)}] ${shortTime(row.lastMessageAt, config.TIME_ZONE)}`,
     );
     await send(ctx, `${ctx.t('searchTitle', { query: query.slice(0, 100) })}\n${lines.join('\n')}`);
   });
@@ -293,8 +296,11 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
       ctx,
       ctx.t('status', {
         pending: health.pending,
-        health: health.status,
-        oldestSeconds: health.oldestPendingAgeSeconds ?? '-',
+        health: outboxHealthLabel(ctx.lang, health.status),
+        oldest:
+          health.oldestPendingAgeSeconds === null
+            ? ctx.t('none')
+            : ctx.t('secondsAgo', { seconds: health.oldestPendingAgeSeconds }),
         blocked: health.blocked,
         worker: flag(health.workerFresh),
         dispatch: flag(health.dispatchFresh),

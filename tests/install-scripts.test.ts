@@ -64,4 +64,25 @@ suite('one-command install scripts', () => {
     expect(backup).toContain('BACKUP_UPLOAD_URL');
     expect(backup).toMatch(/gram-day-\$\(date -u \+%d\)/);
   });
+
+  it.each(['gcp-free.sh', 'oracle-free.sh'])(
+    '%s passes an optional time zone and rejects a malformed one before doing anything',
+    (name) => {
+      const script = read(name);
+      expect(script).toContain('SETTINGS+="TIME_ZONE=$GRAM_TIME_ZONE\\n"');
+      // The check sits before the first cloud CLI call, so a typo creates nothing.
+      expect(script.indexOf('GRAM_TIME_ZONE=$GRAM_TIME_ZONE')).toBeLessThan(
+        script.indexOf(name === 'gcp-free.sh' ? 'gcloud ' : 'oci '),
+      );
+      const check = script.match(/if \[\[ -n "\$\{GRAM_TIME_ZONE:-\}" \]\]; then[\s\S]*?\nfi\n/)?.[0];
+      expect(check).toBeDefined();
+      const run = (zone: string) =>
+        spawnSync('bash', ['-c', `die() { exit 3; }\n${check}`], {
+          env: { ...process.env, GRAM_TIME_ZONE: zone },
+        }).status;
+      expect(run('Europe/Rome')).toBe(0);
+      expect(run('Not a zone')).toBe(3);
+      expect(run('../../etc/passwd')).toBe(3);
+    },
+  );
 });

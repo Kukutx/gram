@@ -14,6 +14,7 @@
 - 投递：去掉 BullMQ，改为 PostgreSQL 发件箱 + `LISTEN/NOTIFY` 即时唤醒；同一聊天严格按顺序，不同聊天并行（`DELIVERY_CONCURRENCY`）；临时错误按指数退避重试，永久错误（被拉黑等）停放待人工处理。Redis 只剩跨实例限流一个用途，可不配。
 - 运维：`pnpm doctor` 增加迁移、NOTIFY 触发器、客服群权限与话题检查；`pnpm outbox:status` 按状态统计发件箱；新增 `grammy_bot_delivery_outcomes_total` 指标。
 - 网络错误不再被自动重试无限挂起：机器人把失败交给 Telegram 重投，Worker 交给发件箱退避。
+- `TIME_ZONE`（IANA 时区，默认 UTC）：工单列表、详情和 `/my_feedbacks` 里的时间按该时区显示；一键部署脚本用 `GRAM_TIME_ZONE` 传入，写错会在创建任何资源前报错。`/status` 的积压等级和「最早待发送」改为本地化文字，没有积压时显示「无」。
 - 删除离线冒烟脚本（已被单元测试覆盖），集成测试不再需要 Redis。
 
 ### 通用部署与文档

@@ -60,7 +60,7 @@ export function intakeFeature({ config, db }: BotDeps): Composer<BotContext> {
       ctx.t('myTicketRow', {
         number: row.number,
         status: ticketStatusLabel(ctx.lang, row.status),
-        updatedAt: shortTime(row.lastMessageAt),
+        updatedAt: shortTime(row.lastMessageAt, config.TIME_ZONE),
         messages: row._count.messages,
       }),
     );
@@ -79,8 +79,8 @@ export function intakeFeature({ config, db }: BotDeps): Composer<BotContext> {
         ctx.t('userTicketDetail', {
           number: ticket.number,
           status: ticketStatusLabel(ctx.lang, ticket.status),
-          createdAt: shortTime(ticket.createdAt),
-          messages: messageLines(ctx.t, ticket.messages),
+          createdAt: shortTime(ticket.createdAt, config.TIME_ZONE),
+          messages: messageLines(ctx.t, ticket.messages, config.TIME_ZONE),
         }),
         4096,
       ),

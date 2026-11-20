@@ -7,7 +7,8 @@
 # (us-central1, 30 GB standard disk), finds your Telegram ID, installs Docker and starts
 # the bot with its own PostgreSQL. Re-run it any time to update the bot or change the token.
 #
-# Optional overrides: GCP_PROJECT, GRAM_VM, GRAM_ZONE, GRAM_REF, BOT_TOKEN, ADMIN_IDS.
+# Optional overrides: GCP_PROJECT, GRAM_VM, GRAM_ZONE, GRAM_REF, BOT_TOKEN, ADMIN_IDS,
+# GRAM_TIME_ZONE (e.g. Europe/Rome; times in chats are UTC otherwise).
 set -euo pipefail
 
 VM="${GRAM_VM:-gram-bot}"
@@ -18,6 +19,11 @@ ZONES=(${GRAM_ZONE:-us-central1-a us-central1-b us-central1-c us-central1-f us-w
 
 say() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31m%s\033[0m\n' "$*" >&2; exit 1; }
+if [[ -n "${GRAM_TIME_ZONE:-}" ]]; then # checked up front so a typo fails before anything is created
+  [[ "$GRAM_TIME_ZONE" =~ ^[A-Za-z][A-Za-z0-9_+/-]*$ &&
+    ( ! -d /usr/share/zoneinfo || -f "/usr/share/zoneinfo/$GRAM_TIME_ZONE" ) ]] ||
+    die "GRAM_TIME_ZONE=$GRAM_TIME_ZONE 不是有效时区，例如 Europe/Rome 或 Asia/Shanghai。"
+fi
 ask() { local reply; read -r -p "$1" reply < /dev/tty; printf '%s' "$reply"; }
 command -v gcloud >/dev/null || die 'Run this in Google Cloud Shell: https://shell.cloud.google.com'
 
@@ -122,6 +128,7 @@ say '5/6 安装并启动（首次大约 15-25 分钟，请保持这个窗口打�
 SETTINGS='BOT_MODE=polling\n'
 [[ -n "$KEEP" ]] || SETTINGS+="BOT_TOKEN=$TOKEN\n"
 [[ -n "$ADMINS" ]] && SETTINGS+="ADMIN_IDS=$ADMINS\n"
+[[ -n "${GRAM_TIME_ZONE:-}" ]] && SETTINGS+="TIME_ZONE=$GRAM_TIME_ZONE\n"
 printf '%b' "$SETTINGS" |
   ssh_vm 'sudo install -d -m 700 /etc/gram && sudo tee -a /etc/gram/env.install >/dev/null && sudo chmod 600 /etc/gram/env.install'
 # The install runs as a systemd unit on the server, so a dropped Cloud Shell connection does

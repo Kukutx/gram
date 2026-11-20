@@ -24,6 +24,12 @@ describe('configuration validation', () => {
         .FEEDBACK_RETENTION_DAYS,
     ).toBe(30);
   });
+  it('accepts IANA time zones for chat timestamps', () => {
+    expect(parseConfig(base).TIME_ZONE).toBe('UTC');
+    expect(parseConfig({ ...base, TIME_ZONE: ' Europe/Rome ' }).TIME_ZONE).toBe('Europe/Rome');
+    expect(parseConfig({ ...base, TIME_ZONE: '' }).TIME_ZONE).toBe('UTC');
+    expect(() => parseConfig({ ...base, TIME_ZONE: 'Mars/Base' })).toThrow(/TIME_ZONE/);
+  });
   it('requires a secret for webhook', () => {
     expect(() => parseConfig({ ...base, BOT_MODE: 'webhook' })).toThrow(/WEBHOOK_SECRET/);
     expect(parseConfig({ ...base, BOT_MODE: 'webhook', WEBHOOK_SECRET: 'a'.repeat(32) }).BOT_MODE).toBe(
