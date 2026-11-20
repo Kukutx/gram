@@ -125,6 +125,15 @@ suite('one-command install scripts', () => {
     expect(zone('xx-unknown-1')).toBe('');
   });
 
+  it('bakes the deployed commit into the image for /status', () => {
+    expect(read('up.sh')).toContain(
+      `export GRAM_VERSION="\${GRAM_VERSION:-$(git log -1 --format='%h %cs'`,
+    );
+    expect(read('compose.yaml')).toContain("args: { APP_VERSION: '${GRAM_VERSION:-local}' }");
+    const dockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8');
+    expect(dockerfile).toMatch(/ARG APP_VERSION=dev\nENV APP_VERSION=\$APP_VERSION\nUSER app/);
+  });
+
   it('schedules the daily self-update and rotates its logs', () => {
     const script = read('server-install.sh');
     expect(script).toMatch(/\$update_minute 4 \* \* \* root bash \$GRAM_DIR\/deploy\/auto-update\.sh/);

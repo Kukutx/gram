@@ -27,6 +27,11 @@ export type StatusNotice = (
 
 const userIdOf = (telegramId: number) => BigInt(telegramId);
 
+/** Status notices the bot sends on its own are stored with author 0. */
+export const SYSTEM_AUTHOR = 0n;
+/** Conversation messages only: excludes the bot's automatic status notices. */
+const conversation = { authorId: { not: SYSTEM_AUTHOR } } satisfies Prisma.TicketMessageWhereInput;
+
 function messageData(content: MessageContent) {
   return {
     text: content.text,
@@ -76,10 +81,17 @@ export async function openTicket(
   updateId: number,
   content: MessageContent,
   recipients: readonly Recipient[],
-  { requireAwaiting }: { requireAwaiting: boolean },
+  {
+    requireAwaiting,
+    sourceUpdateId = updateId,
+  }: {
+    requireAwaiting: boolean;
+    /** The update that carried the message, when a later one (a button press) submits it. */
+    sourceUpdateId?: number;
+  },
 ): Promise<OpenResult> {
   return userMutation(db, telegramId, async (tx) => {
-    const existing = await findByUpdate(tx, updateId);
+    const existing = await findByUpdate(tx, sourceUpdateId);
     if (existing) return existing;
     const user = await tx.telegramUser.findUnique({ where: { telegramId: userIdOf(telegramId) } });
     if (!user) return { kind: 'missing' };
@@ -102,7 +114,7 @@ export async function openTicket(
           create: {
             direction: 'inbound',
             authorId: userIdOf(telegramId),
-            sourceUpdateId: updateId,
+            sourceUpdateId,
             ...messageData(content),
             deliveries: deliveriesFor(recipients),
           },
@@ -145,9 +157,10 @@ export async function addUserMessage(
   ticketId: string,
   content: MessageContent,
   recipients: readonly Recipient[],
+  sourceUpdateId = updateId,
 ): Promise<OpenResult> {
   return userMutation(db, telegramId, async (tx) => {
-    const existing = await findByUpdate(tx, updateId);
+    const existing = await findByUpdate(tx, sourceUpdateId);
     if (existing) return existing;
     const ticket = await tx.ticket.findFirst({
       where: { id: ticketId, user: { telegramId: userIdOf(telegramId) } },
@@ -169,7 +182,7 @@ export async function addUserMessage(
         ticketId: ticket.id,
         direction: 'inbound',
         authorId: userIdOf(telegramId),
-        sourceUpdateId: updateId,
+        sourceUpdateId,
         ...messageData(content),
         deliveries: deliveriesFor(recipients),
       },
@@ -185,6 +198,27 @@ export function latestActiveTicket(db: Database, telegramId: number) {
     where: { user: { telegramId: userIdOf(telegramId) }, status: { in: ['open', 'in_progress'] } },
     orderBy: { lastMessageAt: 'desc' },
     select: { id: true, number: true },
+  });
+}
+
+/** The user's latest ticket resolved within `withinMs`: a new message may well be about it. */
+export function recentlyResolvedTicket(db: Database, telegramId: number, withinMs: number) {
+  return db.ticket.findFirst({
+    where: {
+      user: { telegramId: userIdOf(telegramId) },
+      status: 'resolved',
+      resolvedAt: { gt: new Date(Date.now() - withinMs) },
+    },
+    orderBy: { resolvedAt: 'desc' },
+    select: { id: true, number: true },
+  });
+}
+
+/** One of the user's own tickets by number, or null. */
+export function ownTicket(db: Database, telegramId: number, number: number) {
+  return db.ticket.findFirst({
+    where: { number, user: { telegramId: userIdOf(telegramId) } },
+    select: { id: true, number: true, status: true },
   });
 }
 
@@ -314,13 +348,14 @@ export async function changeTicket(
     await tx.ticketEvent.create({
       data: { ticketId: ticket.id, actorId: BigInt(actor), sourceUpdateId: updateId, action },
     });
-    const text = action === 'assign' ? null : notice?.(ticket.user.language, ticket.number, status);
+    // Tell the owner whenever the status really changed (a reassignment alone is internal).
+    const text = status === ticket.status ? null : notice?.(ticket.user.language, ticket.number, status);
     if (text)
       await tx.ticketMessage.create({
         data: {
           ticketId: ticket.id,
           direction: 'outbound',
-          authorId: 0n,
+          authorId: SYSTEM_AUTHOR,
           text,
           deliveries: { create: { chatId: ticket.user.telegramId } },
         },
@@ -418,13 +453,29 @@ export async function listTickets(
   return { total, rows };
 }
 
-/** Case-insensitive search in message text; bounded, newest first. */
+/** Case-insensitive search in conversation text; bounded, newest first, with the latest match. */
 export async function searchTickets(db: Database, query: string, limit = 10) {
+  const match = {
+    ...conversation,
+    text: { contains: query, mode: 'insensitive' },
+  } satisfies Prisma.TicketMessageWhereInput;
   return db.ticket.findMany({
-    where: { messages: { some: { text: { contains: query, mode: 'insensitive' } } } },
+    where: { messages: { some: match } },
     orderBy: { lastMessageAt: 'desc' },
     take: limit,
-    select: { id: true, number: true, status: true, lastMessageAt: true },
+    select: {
+      id: true,
+      number: true,
+      status: true,
+      lastMessageAt: true,
+      user: { select: { telegramId: true, username: true, firstName: true } },
+      messages: {
+        where: match,
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { text: true },
+      },
+    },
   });
 }
 
@@ -434,6 +485,7 @@ export function getTicket(db: Database, where: Prisma.TicketWhereUniqueInput, me
     include: {
       user: { select: { telegramId: true, username: true, firstName: true, bannedAt: true } },
       messages: {
+        where: conversation,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: messageLimit,
         include: {
@@ -441,7 +493,7 @@ export function getTicket(db: Database, where: Prisma.TicketWhereUniqueInput, me
         },
       },
       events: { orderBy: { createdAt: 'desc' }, take: 10 },
-      _count: { select: { messages: true } },
+      _count: { select: { messages: { where: conversation } } },
     },
   });
 }
@@ -457,7 +509,7 @@ export function myTickets(db: Database, telegramId: number, limit = 10) {
       status: true,
       createdAt: true,
       lastMessageAt: true,
-      _count: { select: { messages: true } },
+      _count: { select: { messages: { where: conversation } } },
     },
   });
 }

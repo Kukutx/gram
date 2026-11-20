@@ -25,6 +25,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=builder /app/dist ./dist
 COPY --from=production-deps /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
+# Last, so a new commit only rebuilds this layer. /status shows it; .env can override it.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 USER app
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

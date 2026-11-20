@@ -57,6 +57,26 @@ export function messageLines(
     .join('\n');
 }
 
+/** About `width` characters of `text` around the first case-insensitive match of `query`. */
+export function snippetAround(text: string, query: string, width = 120): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  if (flat.length <= width) return flat;
+  const at = Math.max(0, flat.toLowerCase().indexOf(query.toLowerCase()));
+  const start = Math.max(0, Math.min(at - Math.floor((width - query.length) / 2), flat.length - width));
+  const end = Math.min(flat.length, start + width);
+  return `${start > 0 ? '…' : ''}${flat.slice(start, end).trim()}${end < flat.length ? '…' : ''}`;
+}
+
+/** Rough, human-friendly length of time: "5 分钟", "3 小时 12 分", "2 天 4 小时". */
+export function formatDuration(t: Translator, seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return t('durationDays', { days, hours: hours % 24 });
+  if (hours > 0) return t('durationHours', { hours, minutes: minutes % 60 });
+  return t('durationMinutes', { minutes });
+}
+
 export function statusText(language: Language, status: TicketStatus): string {
   return ticketStatusLabel(language, status);
 }

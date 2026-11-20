@@ -13,7 +13,11 @@ name: gram
 
 x-app: &app
   image: gram:${GRAM_IMAGE_TAG:-local}
-  build: { context: .., target: runtime }
+  build:
+    context: ..
+    target: runtime
+    # The deployed commit ("0ca5c1e 2026-11-20"), shown by /status; set by deploy/up.sh.
+    args: { APP_VERSION: '${GRAM_VERSION:-local}' }
   restart: unless-stopped
   env_file: ../.env
   environment:

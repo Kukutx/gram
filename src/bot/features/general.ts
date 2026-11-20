@@ -11,7 +11,10 @@ export function generalFeature({ config, db }: BotDeps): Composer<BotContext> {
   const languageMenu = new Menu<BotContext>('language-settings');
   LANGUAGES.forEach((language, index) => {
     if (index > 0) languageMenu.row();
-    languageMenu.text(LANGUAGE_LABELS[language], async (ctx) => {
+    // The current choice is ticked, so the menu also answers "which language is set?".
+    const label = (ctx: BotContext) =>
+      `${LANGUAGE_LABELS[language]}${ctx.lang === language ? ' ✓' : ''}`;
+    languageMenu.text(label, async (ctx) => {
       if (!ctx.from || !isPrivateChat(ctx)) return;
       await setLanguage(db, ctx.from.id, language, ctx.update.update_id);
       ctx.menu.close();

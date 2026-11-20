@@ -11,12 +11,13 @@ export function adminRecipients(config: Pick<AppConfig, 'ADMIN_CHAT_ID' | 'ADMIN
   return config.ADMIN_IDS.map((chatId) => ({ chatId }));
 }
 
-/** Builds the localized "ticket resolved/closed/reopened" notice, or nothing when disabled. */
+/** Builds the localized "ticket in progress/resolved/closed/reopened" notice, or nothing when disabled. */
 export function statusNotice(
   config: Pick<AppConfig, 'NOTIFY_USER_ON_STATUS' | 'DEFAULT_LANGUAGE'>,
 ): StatusNotice | undefined {
   if (!config.NOTIFY_USER_ON_STATUS) return undefined;
   const keys = {
+    in_progress: 'statusNoticeInProgress',
     resolved: 'statusNoticeResolved',
     closed: 'statusNoticeClosed',
     open: 'statusNoticeReopened',

@@ -77,6 +77,8 @@ const configSchema = z
     METRICS_TOKEN: optionalTrimmed,
     SENTRY_DSN: optionalTrimmed,
     RELEASE_ID: optionalTrimmed,
+    /** Shown in /status; deploy/up.sh bakes the deployed commit into the image. */
+    APP_VERSION: optionalTrimmed,
     SUPPORT_CONTACT: optionalTrimmed,
     PRIVACY_POLICY_URL: optionalTrimmed,
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),

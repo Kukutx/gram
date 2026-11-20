@@ -7,8 +7,8 @@ import {
 } from '../src/domain/feedback.ts';
 import { extractContent, validateContent } from '../src/domain/content.ts';
 import type { Message } from 'grammy/types';
-import { normalizeLanguage, outboxHealthLabel, t } from '../src/domain/i18n.ts';
-import { shortTime } from '../src/bot/render.ts';
+import { normalizeLanguage, outboxHealthLabel, t, translator } from '../src/domain/i18n.ts';
+import { formatDuration, shortTime, snippetAround } from '../src/bot/render.ts';
 
 describe('feedback validation', () => {
   it('rejects blank content and commands', () => {
@@ -108,6 +108,24 @@ describe('localization', () => {
     expect(outboxHealthLabel('en', 'critical')).toContain('critical');
     expect(outboxHealthLabel('en', 'novel')).toBe('novel');
     expect(t('zh', 'status', { oldest: t('zh', 'none') })).toContain('最早待发送：无');
+  });
+  it('describes uptime roughly, in the reader language', () => {
+    expect(formatDuration(translator('zh'), 59)).toBe('0 分钟');
+    expect(formatDuration(translator('zh'), 3 * 3600 + 12 * 60 + 5)).toBe('3 小时 12 分');
+    expect(formatDuration(translator('en'), 2 * 86_400 + 4 * 3600 + 59)).toBe('2 d 4 h');
+    expect(t('zh', 'status', { version: 'abc1234 2026-11-20', uptime: '5 分钟' })).toMatch(
+      /^版本：abc1234 2026-11-20（已运行 5 分钟）/,
+    );
+  });
+  it('shows search matches in context', () => {
+    expect(snippetAround('short  text\nhere', 'text')).toBe('short text here');
+    const long = `${'a'.repeat(200)} needle ${'b'.repeat(200)}`;
+    const snippet = snippetAround(long, 'NEEDLE', 40);
+    expect(snippet).toContain('needle');
+    expect(snippet.startsWith('…') && snippet.endsWith('…')).toBe(true);
+    expect(snippet.length).toBeLessThanOrEqual(42);
+    expect(snippetAround(`needle ${'x'.repeat(100)}`, 'needle', 20)).toMatch(/^needle x+…$/);
+    expect(snippetAround(`${'x'.repeat(100)} needle`, 'needle', 20)).toMatch(/^…x+ needle$/);
   });
   it('renders localized placeholders', () => {
     expect(t('zh', 'id', { userId: 123, chatId: -456 })).toContain('123');

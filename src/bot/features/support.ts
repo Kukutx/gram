@@ -8,10 +8,9 @@ import {
   type StatusAction,
 } from '../../db/tickets.ts';
 import { extractContent, validateContent } from '../../domain/content.ts';
-import { ticketStatusLabel } from '../../domain/i18n.ts';
-import { ticketKeyboard } from '../../delivery/sender.ts';
 import type { BotContext, BotDeps } from '../context.ts';
 import { statusNotice } from '../recipients.ts';
+import { describeChange } from '../ticket-actions.ts';
 
 const VALIDATION_KEYS = {
   empty: 'feedbackEmpty',
@@ -30,28 +29,13 @@ export function supportFeature({ config, db }: BotDeps): Composer<BotContext> {
 
   composer.callbackQuery(/^tk:(\d{1,9}):(assign|resolved|closed|open)$/, async (ctx) => {
     if (!ctx.isAdmin) return ctx.answerCallbackQuery({ text: ctx.t('forbidden') });
-    const number = Number(ctx.match[1]);
+    const where = { number: Number(ctx.match[1]) };
     const action = ctx.match[2] as StatusAction;
-    const result = await changeTicket(db, ctx.from.id, ctx.update.update_id, { number }, action, notice);
-    const current = await db.ticket.findUnique({ where: { number }, select: { status: true } });
-    const text =
-      result === 'saved' && current
-        ? ctx.t('callbackDone', { number, status: ticketStatusLabel(ctx.lang, current.status) })
-        : ctx.t(
-            result === 'missing' || !current
-              ? 'ticketMissing'
-              : result === 'stale'
-                ? 'alreadyHandled'
-                : 'ticketUnchanged',
-          );
+    const result = await changeTicket(db, ctx.from.id, ctx.update.update_id, where, action, notice);
+    const { text, keyboard } = await describeChange(ctx, db, where, result, config.DEFAULT_LANGUAGE);
     await ctx.answerCallbackQuery({ text });
     // Show what can be done next (another admin may have changed the ticket in the meantime).
-    if (current)
-      await ctx
-        .editMessageReplyMarkup({
-          reply_markup: ticketKeyboard(config.DEFAULT_LANGUAGE, number, current.status),
-        })
-        .catch(() => {}); // "message is not modified" or too old to edit: nothing to do.
+    if (keyboard) await ctx.editMessageReplyMarkup({ reply_markup: keyboard }).catch(() => {}); // "message is not modified" or too old to edit: nothing to do.
   });
 
   /** The ticket a staff message belongs to, or null when it is ordinary chatter. */
