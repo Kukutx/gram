@@ -355,7 +355,10 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
     const tap = () => bot.handleUpdate(offerTap(stranger, `uf:new:${hello.update_id}`, hello));
     await tap();
     expect(String(telegram.last('editMessageText')!.payload.text)).toMatch(/^Received: ticket #\d+/);
+    // The repeat still leaves the prompt saying where the message went.
+    telegram.clear();
     await tap();
+    expect(String(telegram.last('editMessageText')!.payload.text)).toMatch(/^Received: ticket #\d+/);
     const [ticket, ...extra] = await ticketsOf(stranger);
     expect(extra).toHaveLength(0);
     expect(ticket!.messages.map((m) => m.text)).toEqual(['Hello?']);

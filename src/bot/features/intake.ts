@@ -172,11 +172,17 @@ export function intakeFeature({ config, db }: BotDeps): Composer<BotContext> {
         sourceUpdateId,
       });
     }
-    await ctx.answerCallbackQuery();
-    // A second tap finds the message already saved; the first one already updated the prompt.
-    if (result.kind === 'duplicate') return;
-    const text = ackText(ctx, result);
-    await ctx.editMessageText(text).catch(() => ctx.reply(text));
+    // The ticket is saved: a failed acknowledgement must not keep the prompt from updating.
+    await ctx.answerCallbackQuery().catch(() => {});
+    // A retry or second tap finds the message saved; restate where it went (an edit to the same
+    // text is refused, which is fine) instead of assuming the first attempt updated the prompt.
+    const text =
+      result.kind === 'duplicate'
+        ? ctx.t(kind === 'add' ? 'followUpSaved' : 'ticketCreated', { number: result.number })
+        : ackText(ctx, result);
+    await ctx
+      .editMessageText(text)
+      .catch(() => (result.kind === 'duplicate' ? undefined : ctx.reply(text)));
   });
 
   pm.on('message', async (ctx) => {
