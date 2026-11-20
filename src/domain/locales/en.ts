@@ -89,7 +89,7 @@ export const en: Record<keyof typeof zh, string> = {
   directionIn: 'user→support',
   directionOut: 'support→user',
 
-  notifyNewTicket: '🆕 New ticket #{number}\nFrom: {author}\n\n',
+  notifyNewTicket: '🆕 New ticket #{number} ({status})\nFrom: {author}\n\n',
   notifyFollowUp: '💬 Ticket #{number} ({status}) · {author}\n\n',
   notifyReply: '🛟 Support reply · ticket #{number}\n\n',
   statusNoticeInProgress:

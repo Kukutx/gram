@@ -1,5 +1,5 @@
 import { summarizeFeedback } from '../domain/feedback.ts';
-import { ticketStatusLabel, type Language, type Translator } from '../domain/i18n.ts';
+import { interpolate, ticketStatusLabel, type Language, type Translator } from '../domain/i18n.ts';
 import type { TicketStatus } from '../generated/prisma/client.ts';
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
@@ -79,4 +79,28 @@ export function formatDuration(t: Translator, seconds: number): string {
 
 export function statusText(language: Language, status: TicketStatus): string {
   return ticketStatusLabel(language, status);
+}
+
+/**
+ * Rewrites the status line of `text` so that it shows `now`. Each entry of `lines` is a
+ * template line (everything but `{status}` filled in), the row it sits on, and the line it
+ * becomes; the first entry whose row reads like it with any of the status `labels` is
+ * used. Null when none matches or the row already shows `now`.
+ */
+export function restateStatus(
+  text: string,
+  lines: readonly { index: number; from: string; to: string }[],
+  labels: readonly string[],
+  now: string,
+): string | null {
+  const rows = text.split('\n');
+  for (const { index, from, to } of lines) {
+    const row = rows[index];
+    if (row === undefined || !labels.some((status) => interpolate(from, { status }) === row)) continue;
+    const updated = interpolate(to, { status: now });
+    if (updated === row) return null;
+    rows[index] = updated;
+    return rows.join('\n');
+  }
+  return null;
 }

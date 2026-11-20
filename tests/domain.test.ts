@@ -8,7 +8,7 @@ import {
 import { extractContent, validateContent } from '../src/domain/content.ts';
 import type { Message } from 'grammy/types';
 import { normalizeLanguage, outboxHealthLabel, t, translator } from '../src/domain/i18n.ts';
-import { formatDuration, shortTime, snippetAround } from '../src/bot/render.ts';
+import { formatDuration, restateStatus, shortTime, snippetAround } from '../src/bot/render.ts';
 
 describe('feedback validation', () => {
   it('rejects blank content and commands', () => {
@@ -126,6 +126,16 @@ describe('localization', () => {
     expect(snippet.length).toBeLessThanOrEqual(42);
     expect(snippetAround(`needle ${'x'.repeat(100)}`, 'needle', 20)).toMatch(/^needle x+…$/);
     expect(snippetAround(`${'x'.repeat(100)} needle`, 'needle', 20)).toMatch(/^…x+ needle$/);
+  });
+  it('restates only the status line that sits where its template puts it', () => {
+    const lines = [{ index: 1, from: 'Status: {status}', to: 'Status: {status}' }];
+    const labels = ['Open', 'Closed'];
+    expect(restateStatus('T\nStatus: Open\nStatus: Open', lines, labels, 'Closed')).toBe(
+      'T\nStatus: Closed\nStatus: Open',
+    );
+    expect(restateStatus('T\nStatus: Closed', lines, labels, 'Closed')).toBeNull();
+    expect(restateStatus('Status: Open', lines, labels, 'Closed')).toBeNull();
+    expect(restateStatus('T\nStatus: Pending', lines, labels, 'Closed')).toBeNull();
   });
   it('renders localized placeholders', () => {
     expect(t('zh', 'id', { userId: 123, chatId: -456 })).toContain('123');

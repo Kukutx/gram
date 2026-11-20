@@ -4,6 +4,8 @@
  * from being rejected for oversize Unicode payloads.
  */
 export const TELEGRAM_TEXT_MAX_UNITS = 4096;
+/** Media captions are limited to 1024 characters. */
+export const TELEGRAM_CAPTION_MAX_UNITS = 1024;
 
 export function truncateTelegramText(text: string, maxUnits: number): string {
   if (!Number.isSafeInteger(maxUnits) || maxUnits < 1)

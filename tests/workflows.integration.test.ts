@@ -321,6 +321,7 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
 
     // Ticket views count and list only the conversation; the history shows the changes.
     await bot.handleUpdate(message(admin, { text: `/ticket ${n}` }));
+    const detail = String(last().text);
     expect(last().text).toContain('Messages: 1 (latest 1 shown)');
     expect(last().text).not.toContain('started working');
     expect(buttons()).toContain(`tk:${n}:closed`);
@@ -331,6 +332,30 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
     await bot.handleUpdate(message(admin, { text: '/search ON FIRE' }));
     expect(last().text).toContain(`#${n} [Resolved] User ${other} (${other})`);
     expect(last().text).toContain('The printer is on fire, please help');
+
+    // A button also rewrites the status that the pressed message shows.
+    const press = async (data: string, fields: Record<string, unknown>) => {
+      const update = callback(admin, data);
+      Object.assign(update.callback_query!.message!, fields);
+      telegram.clear();
+      await bot.handleUpdate(update);
+    };
+    await press(`tk:${n}:closed`, { text: detail });
+    const edited = telegram.last('editMessageText')!.payload;
+    expect(edited.text).toBe(detail.replace('\nStatus: Resolved\n', '\nStatus: Closed\n'));
+    expect(JSON.stringify(edited.reply_markup)).toContain(`tk:${n}:open`);
+    const author = `User ${other} (${other})`;
+    await press(`tk:${n}:open`, { caption: `💬 Ticket #${n} (Closed) · ${author}\n\nsee photo` });
+    expect(telegram.last('editMessageCaption')?.payload.caption).toBe(
+      `💬 Ticket #${n} (Open) · ${author}\n\nsee photo`,
+    );
+    await press(`tk:${n}:assign`, { text: `Ticket #${n} is already “Open”; nothing changed.` });
+    expect(telegram.last('editMessageText')?.payload.text).toBe(`Ticket #${n} → In progress`);
+    // A message without a status line of ours, or already current, only gets new buttons.
+    await press(`tk:${n}:resolved`, { text: 'Status: Open, according to the user' });
+    await press(`tk:${n}:resolved`, { text: `🆕 New ticket #${n} (Resolved)\nFrom: ${author}` });
+    expect(telegram.of('editMessageText')).toHaveLength(0);
+    expect(telegram.of('editMessageReplyMarkup')).toHaveLength(1);
   });
 
   it('continues a ticket in progress from a plain message, and offers to send anything else', async () => {

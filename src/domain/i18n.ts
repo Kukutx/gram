@@ -24,10 +24,28 @@ export function normalizeLanguage(code: string | undefined | null, fallback: Lan
   return isLanguage(base) ? base : fallback;
 }
 
-export function t(language: Language, key: TranslationKey, variables: Variables = {}): string {
-  return dictionaries[language][key].replace(/\{([a-zA-Z]+)\}/g, (whole, name: string) =>
+/** Fills `{name}` placeholders; unknown ones stay as they are, so a template can be filled in steps. */
+export function interpolate(template: string, variables: Variables = {}): string {
+  return template.replace(/\{([a-zA-Z]+)\}/g, (whole, name: string) =>
     Object.hasOwn(variables, name) ? String(variables[name]) : whole,
   );
+}
+
+export function t(language: Language, key: TranslationKey, variables: Variables = {}): string {
+  return interpolate(dictionaries[language][key], variables);
+}
+
+/**
+ * The line of a template that shows `{status}`, such as "状态：{status}", and its position;
+ * undefined when no line does.
+ */
+export function statusLine(
+  language: Language,
+  key: TranslationKey,
+): { index: number; line: string } | undefined {
+  const lines = dictionaries[language][key].split('\n');
+  const index = lines.findIndex((line) => line.includes('{status}'));
+  return index < 0 ? undefined : { index, line: lines[index]! };
 }
 
 export type Translator = (key: TranslationKey, variables?: Variables) => string;

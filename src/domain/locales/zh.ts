@@ -89,7 +89,7 @@ export const zh = {
   directionOut: '客服→用户',
 
   // Notifications sent by the worker
-  notifyNewTicket: '🆕 新工单 #{number}\n来自：{author}\n\n',
+  notifyNewTicket: '🆕 新工单 #{number}（{status}）\n来自：{author}\n\n',
   notifyFollowUp: '💬 工单 #{number}（{status}）· {author}\n\n',
   notifyReply: '🛟 客服回复 · 工单 #{number}\n\n',
   statusNoticeInProgress: '客服已开始处理你的工单 #{number}，有回复会直接发到这里。',
