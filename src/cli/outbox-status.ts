@@ -1,7 +1,7 @@
 import 'dotenv/config';
-import { parseConfig, hasSupportTeam } from '../src/config/env.ts';
-import { createPrisma } from '../src/db/client.ts';
-import { operationsHealth } from '../src/observability/operations.ts';
+import { parseConfig, hasSupportTeam } from '../config/env.ts';
+import { createPrisma } from '../db/client.ts';
+import { operationsHealth } from '../observability/operations.ts';
 
 /** An operator diagnostic: outputs only aggregate counts, never message text or secrets. */
 async function main(): Promise<void> {

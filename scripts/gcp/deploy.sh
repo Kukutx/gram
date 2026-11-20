@@ -16,12 +16,30 @@ required=(
   GCP_PROJECT_ID GCP_REGION GCP_ARTIFACT_REPO GCP_SERVICE_NAME
   GCP_WORKER_POOL GCP_MIGRATE_JOB GCP_SQL_CONNECTION_NAME
   GCP_RUN_SERVICE_ACCOUNT GCP_VPC_NETWORK GCP_VPC_SUBNET
-  GCP_ADMIN_TELEGRAM_ID GCP_BOT_TOKEN_SECRET GCP_DATABASE_URL_SECRET
+  GCP_BOT_TOKEN_SECRET GCP_DATABASE_URL_SECRET
   GCP_WEBHOOK_SECRET_SECRET GCP_METRICS_TOKEN_SECRET
 )
 for name in "${required[@]}"; do
   if [[ -z "${!name:-}" ]]; then echo "Missing $name in .env.gcp" >&2; exit 1; fi
 done
+# GCP_ADMIN_TELEGRAM_ID is the v1 name; GCP_ADMIN_IDS may list several admins.
+GCP_ADMIN_IDS="${GCP_ADMIN_IDS:-${GCP_ADMIN_TELEGRAM_ID:-}}"
+GCP_ADMIN_IDS="${GCP_ADMIN_IDS//,/ }"
+if [[ -z "${GCP_ADMIN_IDS// /}" && -z "${GCP_ADMIN_CHAT_ID:-}" ]]; then
+  echo 'Set GCP_ADMIN_IDS and/or GCP_ADMIN_CHAT_ID so someone receives tickets.' >&2; exit 1
+fi
+if [[ -n "${GCP_ADMIN_IDS// /}" && ! "$GCP_ADMIN_IDS" =~ ^[0-9\ ]+$ ]]; then
+  echo 'GCP_ADMIN_IDS must be numeric Telegram user IDs.' >&2; exit 1
+fi
+if [[ -n "${GCP_ADMIN_CHAT_ID:-}" && ! "$GCP_ADMIN_CHAT_ID" =~ ^-[0-9]+$ ]]; then
+  echo 'GCP_ADMIN_CHAT_ID must be a negative group ID.' >&2; exit 1
+fi
+GCP_ADMIN_USE_TOPICS="${GCP_ADMIN_USE_TOPICS:-false}"
+GCP_INTAKE_MODE="${GCP_INTAKE_MODE:-command}"
+GCP_DEFAULT_LANGUAGE="${GCP_DEFAULT_LANGUAGE:-zh}"
+[[ "$GCP_ADMIN_USE_TOPICS" =~ ^(true|false)$ ]] || { echo 'GCP_ADMIN_USE_TOPICS must be true or false.' >&2; exit 1; }
+[[ "$GCP_INTAKE_MODE" =~ ^(command|direct)$ ]] || { echo 'GCP_INTAKE_MODE must be command or direct.' >&2; exit 1; }
+[[ "$GCP_DEFAULT_LANGUAGE" =~ ^(zh|en)$ ]] || { echo 'GCP_DEFAULT_LANGUAGE must be zh or en.' >&2; exit 1; }
 command -v gcloud >/dev/null || { echo 'Install Google Cloud CLI first.' >&2; exit 1; }
 command -v python3 >/dev/null || { echo 'Install Python 3 for deployment records.' >&2; exit 1; }
 
@@ -71,7 +89,7 @@ done
 if (( 10#$GCP_RATE_LIMIT_PER_MINUTE > 600 || 10#$GCP_FEEDBACK_RETENTION_DAYS > 3650 )); then
   echo 'Rate limit or retention policy is outside its supported range.' >&2; exit 1
 fi
-ENV_VARS="BOT_MODE=webhook,WEBHOOK_PATH=/telegram/webhook,LOG_LEVEL=info,ADMIN_TELEGRAM_ID=${GCP_ADMIN_TELEGRAM_ID},RATE_LIMIT_PER_MINUTE=${GCP_RATE_LIMIT_PER_MINUTE},FEEDBACK_RETENTION_DAYS=${GCP_FEEDBACK_RETENTION_DAYS}"
+ENV_VARS="BOT_MODE=webhook,WEBHOOK_PATH=/telegram/webhook,LOG_LEVEL=info,ADMIN_IDS=${GCP_ADMIN_IDS},ADMIN_TELEGRAM_ID=,ADMIN_CHAT_ID=${GCP_ADMIN_CHAT_ID:-},ADMIN_USE_TOPICS=${GCP_ADMIN_USE_TOPICS},INTAKE_MODE=${GCP_INTAKE_MODE},DEFAULT_LANGUAGE=${GCP_DEFAULT_LANGUAGE},RATE_LIMIT_PER_MINUTE=${GCP_RATE_LIMIT_PER_MINUTE},FEEDBACK_RETENTION_DAYS=${GCP_FEEDBACK_RETENTION_DAYS}"
 ENV_VARS+=",RELEASE_ID=${REVISION_TAG}"
 for name in GCP_SUPPORT_CONTACT GCP_PRIVACY_POLICY_URL; do
   value="${!name:-}"

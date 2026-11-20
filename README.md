@@ -54,16 +54,19 @@ DATABASE_URL=postgresql://.../grammy_test pnpm db:deploy
 TEST_DATABASE_URL=postgresql://.../grammy_test pnpm test:integration
 ```
 
-从 v1.5 升级：先停旧 Worker，执行 `pnpm db:deploy`（迁移会把反馈、回复和未送达通知转换成工单），再启动新版本的 Bot 和 Worker。`ADMIN_TELEGRAM_ID` 仍然有效，建议改为 `ADMIN_IDS`。
+## 部署
 
-## 部署和运维
+生产环境运行 Bot 和 Worker 两个进程，迁移单独执行。Worker 负责发送所有消息，必须一直运行。
 
-生产运行两个进程：Bot（polling 或 webhook）及 Worker。迁移作为独立步骤运行。Worker 负责发送所有消息，必须一直运行。
+- **任意一台服务器**：填好 `.env` 后运行 `bash deploy/up.sh`。这一步会完成构建、迁移、启动和自检，默认 polling 模式，不需要域名。详见 [部署指南](docs/DEPLOY.md)，其中包括 webhook + 自动 HTTPS、备份恢复、从 v1.5 升级和上线检查清单。
+- **Google Cloud**：Cloud Run + Cloud SQL，支持 GitHub Actions 审批发布，见 [GCP_DEPLOY.md](docs/GCP_DEPLOY.md)。
+- **其他平台**：使用同一个 Dockerfile，见 [部署指南](docs/DEPLOY.md#选哪种方式)。
 
-- [GCP 部署](docs/GCP_DEPLOY.md)：Cloud Run + Cloud SQL；Worker Pool 常驻。先阅读 [v1.5 变更](docs/UPGRADE_1_5.md)。
-- [运行手册](docs/OPERATIONS.md)：投递故障、外部告警、隐私请求和恢复。
-- `/live` 检查进程，`/ready` 检查 PostgreSQL；`/ops/health` 和 `/metrics` 使用 METRICS_TOKEN 的 Bearer 鉴权。
-- `pnpm ops:health`、`pnpm outbox:status` 查询运行状态；外部调度器可运行 `node scripts/probe-http.mjs`。
-- [生产验收清单](docs/PRODUCTION_READINESS.md) 中云权限、报警接收、真实 Telegram 测试和备份恢复需要部署方完成。
+## 文档
 
-不在源码、终端参数、URL 或日志中放真实 Token。配置通过环境变量或 Secret Manager 注入。
+- [架构](docs/ARCHITECTURE.md)：数据模型、更新处理顺序、发件箱与并发、目录结构、扩展方式。
+- [运维手册](docs/OPERATIONS.md)：健康检查、客服日常、发送失败处理、隐私请求、常见问题。
+- [安全](docs/SECURITY.md)、[个人数据导出](docs/PRIVACY_EXPORT.md)、[发布与依赖锁定](docs/RELEASE_POLICY.md)。
+- v1.x 历史文档在 [docs/history](docs/history/README.md)。
+
+不要把真实 Token 放进源码、命令行参数、URL 或日志。所有配置都通过环境变量或 Secret Manager 注入。

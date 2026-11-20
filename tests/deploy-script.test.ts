@@ -126,6 +126,7 @@ suite('production deployment shell contract', () => {
       expect(args).toContain('METRICS_TOKEN=metrics-secret:1');
       expect(args).toContain('SENTRY_DSN=sentry-secret:1');
       expect(args).toContain('--remove-secrets REDIS_URL');
+      expect(args).toContain('ADMIN_IDS=123456789,ADMIN_TELEGRAM_ID=,');
     }
     expect(
       result.trace.some(
@@ -143,6 +144,29 @@ suite('production deployment shell contract', () => {
     expect(
       result.trace.some((call) => call.args.slice(0, 3).join(' ') === 'run worker-pools replace'),
     ).toBe(true);
+  });
+  it('passes several admins and a support group without breaking the env list', () => {
+    const result = runDeployment({
+      GCP_ADMIN_TELEGRAM_ID: '',
+      GCP_ADMIN_IDS: '11,22 33',
+      GCP_ADMIN_CHAT_ID: '-1001',
+      GCP_ADMIN_USE_TOPICS: 'true',
+    });
+    expect(result.status, result.output).toBe(0);
+    const deploy = result.trace.find((call) => call.args.slice(0, 2).join(' ') === 'run deploy')!;
+    const env = deploy.args[deploy.args.indexOf('--update-env-vars') + 1]!;
+    expect(env).toContain('ADMIN_IDS=11 22 33,');
+    expect(env).toContain('ADMIN_CHAT_ID=-1001,ADMIN_USE_TOPICS=true,');
+  });
+  it.each([
+    [{ GCP_ADMIN_TELEGRAM_ID: '' }],
+    [{ GCP_ADMIN_IDS: 'abc' }],
+    [{ GCP_ADMIN_CHAT_ID: '1001' }],
+    [{ GCP_INTAKE_MODE: 'chat' }],
+  ])('refuses invalid support settings before any cloud mutation (%o)', (extra) => {
+    const result = runDeployment(extra);
+    expect(result.status).toBe(1);
+    expect(result.trace).toHaveLength(0);
   });
   it('refuses unpinned secrets before any cloud mutation', () => {
     const result = runDeployment({ GCP_BOT_TOKEN_VERSION: 'latest' });

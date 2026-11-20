@@ -1,0 +1,113 @@
+# Production stack for any Docker host (VPS, home server, cloud VM).
+#
+#   cp .env.example .env        # fill BOT_TOKEN, ADMIN_IDS, POSTGRES_PASSWORD, ...
+#   bash deploy/up.sh           # build, migrate, start, register webhook, self-check
+#
+# Manual use always passes the root .env for variable substitution:
+#   docker compose --env-file .env -f deploy/compose.yaml ps
+#
+# Polling mode needs no domain or open ports. Webhook mode: set BOT_MODE=webhook,
+# WEBHOOK_SECRET, DOMAIN and PUBLIC_URL=https://$DOMAIN, then `up.sh` also starts
+# Caddy, which obtains the TLS certificate automatically (ports 80/443 must be open).
+name: gram
+
+x-app: &app
+  image: gram:${GRAM_IMAGE_TAG:-local}
+  build: { context: .., target: runtime }
+  restart: unless-stopped
+  env_file: ../.env
+  environment:
+    &app-env # The bundled database by default; set EXTERNAL_DATABASE_URL to use a managed one.
+    DATABASE_URL: ${EXTERNAL_DATABASE_URL:-postgresql://bot:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/grammy_bot}
+    NODE_ENV: production
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: '5' }
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: grammy_bot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U bot -d grammy_bot']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: applies pending migrations, then exits. bot and worker wait for it.
+  migrate:
+    image: gram-migrate:${GRAM_IMAGE_TAG:-local}
+    build: { context: .., target: migrations }
+    env_file: ../.env
+    environment:
+      DATABASE_URL: ${EXTERNAL_DATABASE_URL:-postgresql://bot:${POSTGRES_PASSWORD}@postgres:5432/grammy_bot}
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: 'no'
+
+  bot:
+    <<: *app
+    command: ['node', 'dist/index.js']
+    ports:
+      # Health and metrics on the host only; Caddy reaches the bot over the compose network.
+      - '127.0.0.1:${BOT_HOST_PORT:-3000}:3000'
+    environment:
+      <<: *app-env
+      PORT: '3000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  worker:
+    <<: *app
+    command: ['node', 'dist/worker.js']
+    environment:
+      <<: *app-env
+      WORKER_HEALTH_PORT: '3001'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ['webhook']
+    environment:
+      DOMAIN: ${DOMAIN:-}
+      WEBHOOK_PATH: ${WEBHOOK_PATH:-/telegram/webhook}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      bot: { condition: service_healthy }
+
+volumes:
+  postgres-data:
+  caddy-data:

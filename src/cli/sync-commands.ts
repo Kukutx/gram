@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { Api } from 'grammy';
-import { ADMIN_COMMANDS, botCommands, USER_COMMANDS } from '../src/bot/commands.ts';
-import { parseTelegramCliConfig } from '../src/config/env.ts';
-import { LANGUAGES } from '../src/domain/i18n.ts';
+import { ADMIN_COMMANDS, botCommands, USER_COMMANDS } from '../bot/commands.ts';
+import { parseTelegramCliConfig } from '../config/env.ts';
+import { LANGUAGES } from '../domain/i18n.ts';
 
 /**
  * Publishes the command menu from the same registry that renders /help.

@@ -18,3 +18,6 @@ deployment-record.json
 
 # Local Redis snapshot
 dump.rdb
+
+# Database dumps from deploy/backup.sh
+deploy/backups/

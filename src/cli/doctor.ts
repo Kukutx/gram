@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { Api } from 'grammy';
 import { Redis } from 'ioredis';
-import { hasSupportTeam, parseConfig } from '../src/config/env.ts';
-import { createPrisma } from '../src/db/client.ts';
+import { hasSupportTeam, parseConfig } from '../config/env.ts';
+import { createPrisma } from '../db/client.ts';
 
 /**
  * Pre-flight and post-deploy self-check. Prints one line per check and never

@@ -1,0 +1,11 @@
+# Public entry point for webhook mode. Only the Telegram webhook path is exposed;
+# health and metrics stay on the private compose network / host loopback.
+{$DOMAIN} {
+	encode gzip
+	handle {$WEBHOOK_PATH} {
+		reverse_proxy bot:3000
+	}
+	handle {
+		respond 404
+	}
+}

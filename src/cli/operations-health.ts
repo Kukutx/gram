@@ -1,7 +1,7 @@
 import 'dotenv/config';
-import { parseConfig } from '../src/config/env.ts';
-import { createPrisma } from '../src/db/client.ts';
-import { operationsHealth } from '../src/observability/operations.ts';
+import { parseConfig } from '../config/env.ts';
+import { createPrisma } from '../db/client.ts';
+import { operationsHealth } from '../observability/operations.ts';
 
 const config = parseConfig();
 const db = createPrisma(config);

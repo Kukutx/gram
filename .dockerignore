@@ -14,3 +14,4 @@ docs
 # Temporary GCP OIDC credential output; never commit or bake into images.
 gha-creds-*.json
 deployment-record.json
+deploy/backups

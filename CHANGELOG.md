@@ -16,6 +16,13 @@
 - 网络错误不再被自动重试无限挂起：机器人把失败交给 Telegram 重投，Worker 交给发件箱退避。
 - 删除离线冒烟脚本（已被单元测试覆盖），集成测试不再需要 Redis。
 
+### 通用部署与文档
+
+- `deploy/compose.yaml` + `deploy/up.sh`：任意 Docker 主机一条命令完成构建、迁移、启动（健康检查）、命令菜单同步和自检；webhook 模式附带 Caddy 自动 HTTPS，只暴露 webhook 路径。`deploy/backup.sh` 定时备份并轮换。
+- 运维命令移到 `src/cli/`，随镜像发布（`node dist/cli/doctor.js` 等），容器里也能自检。
+- GCP 发布脚本支持 `GCP_ADMIN_IDS`（多个）、`GCP_ADMIN_CHAT_ID`、`GCP_ADMIN_USE_TOPICS`、`GCP_INTAKE_MODE`、`GCP_DEFAULT_LANGUAGE`，并在任何云操作前校验。
+- 文档整合为 README、DEPLOY、GCP_DEPLOY、ARCHITECTURE、OPERATIONS、SECURITY、PRIVACY_EXPORT、RELEASE_POLICY；v1.x 文档移入 `docs/history/`。CI 去掉 Redis 服务。
+
 ### 稳定性与结构
 
 - 修复：long polling 模式下任一更新处理出错会让 grammY 停止轮询、进程退出；现在记录并跳过该更新。

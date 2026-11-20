@@ -1,6 +1,6 @@
 # GitHub Actions → GCP：仅手动发布，Workload Identity Federation
 
-> v1.5：生产部署前先运行同一提交的复用 CI；新增 GCP_METRICS_TOKEN_SECRET（必需）、Sentry 可选 Secret、GCP_REDIS_ENABLED、联系与隐私策略变量。bootstrap 输入只供首次注册前使用；可提供同一提交、已通过 staging 的 Bot/Migrator 摘要进行晋级。具体参数以 `.env.gcp.example` 和 [UPGRADE_1_5.md](UPGRADE_1_5.md) 为准。
+> 发布前会先对同一提交运行 CI。需要的变量以 `.env.gcp.example` 为准，包括 `GCP_ADMIN_IDS`、可选的 `GCP_ADMIN_CHAT_ID` / `GCP_ADMIN_USE_TOPICS` / `GCP_INTAKE_MODE`、必填的 `GCP_METRICS_TOKEN_SECRET` 和可选的 Sentry Secret。`bootstrap` 输入只在首次注册 webhook 前使用；也可以把已在 staging 验证过的同一提交镜像摘要直接晋级到生产。
 
 工作流：`.github/workflows/cd-gcp.yml`。使用 OIDC 临时凭证，**不要**上传服务账号 JSON 私钥。
 
@@ -8,7 +8,7 @@
 
 1. 一个 Workload Identity Pool / Provider，信任指定 GitHub 仓库及 `environment:production` 对应的 OIDC 属性；务必限制仓库及分支引用，避免任意仓库能冒用云身份。
 2. 专用部署 Service Account，赋予 Cloud Build 触发、Cloud Run 服务/Job/Worker Pool 更新、Artifact Registry、部署所需 `iam.serviceAccountUser` 等最小权限。
-3. 已存在的 Cloud SQL、Memorystore、Secret Manager、Cloud Run Service Account、网络和 GCP 所需 API；参见 `docs/GCP_DEPLOY.md`。在运行服务身份上逐个 Secret 授权访问。
+3. 已存在的 Cloud SQL、Secret Manager、（可选）Memorystore、Cloud Run Service Account、网络和 GCP 所需 API；参见 `docs/GCP_DEPLOY.md`。在运行服务身份上逐个 Secret 授权访问。
 
 ## 你需要在 GitHub 准备
 

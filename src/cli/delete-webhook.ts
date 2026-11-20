@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { Api } from 'grammy';
-import { parseTelegramCliConfig } from '../src/config/env.ts';
+import { parseTelegramCliConfig } from '../config/env.ts';
 
 async function main() {
   const config = parseTelegramCliConfig();
