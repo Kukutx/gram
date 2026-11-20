@@ -117,28 +117,60 @@ latest_ubuntu() { # latest_ubuntu SHAPE: newest Ubuntu 24.04 image for that shap
     --shape "$1" --sort-by TIMECREATED --sort-order DESC --all 2>/dev/null |
     json 'print(next((i["id"] for i in d.get("data",[]) if "Minimal" not in i["display-name"]),""))'
 }
-launch() { # launch SHAPE AD [SHAPE_CONFIG]: prints the instance id, or the error on stderr
-  local image out
-  image="$(latest_ubuntu "$1")"; [[ -n "$image" ]] || { echo '找不到 Ubuntu 镜像' >&2; return 1; }
-  out="$(oci compute instance launch -c "$TENANCY" --availability-domain "$2" --shape "$1" ${3:+--shape-config "$3"} \
-    --image-id "$image" --subnet-id "$SUBNET" --assign-public-ip true --display-name "$VM" \
+launch() { # launch SHAPE IMAGE AD [SHAPE_CONFIG]: prints the instance id; exit 2 = rate limited
+  local out
+  [[ -n "$2" ]] || { echo '    找不到 Ubuntu 镜像' >&2; return 1; }
+  out="$(oci compute instance launch -c "$TENANCY" --availability-domain "$3" --shape "$1" ${4:+--shape-config "$4"} \
+    --image-id "$2" --subnet-id "$SUBNET" --assign-public-ip true --display-name "$VM" \
     --boot-volume-size-in-gbs 50 --ssh-authorized-keys-file "$KEY.pub" \
-    --wait-for-state RUNNING --max-wait-seconds 900 2>&1)" || { printf '%s\n' "$out" | { grep -m1 '"message"' || tail -n1; } >&2; return 1; }
+    --wait-for-state RUNNING --max-wait-seconds 900 2>&1)" || {
+    printf '%s\n' "$out" | { grep -m1 '"message"' || tail -n1; } >&2
+    grep -qiE 'TooManyRequests|too many requests|"status": 429' <<<"$out" && return 2
+    return 1
+  }
   printf '%s' "$out" | sed -n '/^{/,$p' | json 'print(d["data"]["id"])'
 }
 if [[ -z "$INSTANCE" ]]; then
   mapfile -t ADS < <(oci iam availability-domain list -c "$TENANCY" | json 'print("\n".join(a["name"] for a in d["data"]))')
-  for ad in "${ADS[@]}"; do
-    echo "尝试 Arm 服务器（${OCPUS} 核 ${MEMORY_GB} GB）: $ad ..."
-    INSTANCE="$(launch VM.Standard.A1.Flex "$ad" "{\"ocpus\":$OCPUS,\"memoryInGBs\":$MEMORY_GB}")" && break || INSTANCE=''
+  ARM_IMAGE="$(latest_ubuntu VM.Standard.A1.Flex)"
+  AMD_IMAGE="$(latest_ubuntu VM.Standard.E2.1.Micro)"
+  # New accounts are often rate limited ("Too many requests") and free capacity comes and goes,
+  # so keep trying with growing pauses instead of giving up on the first refusal.
+  deadline=$((SECONDS + ${GRAM_LAUNCH_MINUTES:-15} * 60)) pause=30 reason=''
+  while true; do
+    reason=capacity
+    for ad in "${ADS[@]}"; do
+      echo "尝试 Arm 服务器（${OCPUS} 核 ${MEMORY_GB} GB）: $ad ..."
+      if INSTANCE="$(launch VM.Standard.A1.Flex "$ARM_IMAGE" "$ad" "{\"ocpus\":$OCPUS,\"memoryInGBs\":$MEMORY_GB}")"; then
+        break 2
+      else
+        [[ $? -eq 2 ]] && { reason=limited; break; }
+      fi
+    done
+    if [[ "$reason" != limited ]]; then
+      for ad in "${ADS[@]}"; do
+        echo "Arm 暂时没有空闲，改用 1 GB 的 AMD 免费机器: $ad ..."
+        if INSTANCE="$(launch VM.Standard.E2.1.Micro "$AMD_IMAGE" "$ad")"; then
+          break 2
+        else
+          [[ $? -eq 2 ]] && { reason=limited; break; }
+        fi
+      done
+    fi
+    INSTANCE=''
+    (( SECONDS + pause < deadline )) || break
+    if [[ "$reason" == limited ]]; then
+      echo "Oracle 限制了请求频率（新账号常见），${pause} 秒后自动重试。窗口别关；网页弹出 Continue working 就点一下。"
+    else
+      echo "暂时没有空闲机器，${pause} 秒后自动重试。窗口别关；网页弹出 Continue working 就点一下。"
+    fi
+    sleep "$pause"; pause=$((pause * 2 > 240 ? 240 : pause * 2))
   done
   if [[ -z "$INSTANCE" ]]; then
-    for ad in "${ADS[@]}"; do
-      echo "Arm 暂时没有空闲，改用 1 GB 的 AMD 免费机器: $ad ..."
-      INSTANCE="$(launch VM.Standard.E2.1.Micro "$ad")" && break || INSTANCE=''
-    done
+    [[ "$reason" == limited ]] &&
+      die 'Oracle 还在限制这个账号的请求频率（新账号头几个小时常见）。过一两个小时再运行同一条命令即可，已经建好的网络会直接沿用。'
+    die '免费服务器暂时都没有空闲（Oracle 常见情况）。过一两个小时再运行同一条命令即可。'
   fi
-  [[ -n "$INSTANCE" ]] || die '免费服务器暂时都没有空闲（Oracle 常见情况）。过一两个小时再运行同一条命令即可。'
 else
   echo "已存在: $VM，将更新机器人。"
   oci compute instance action --instance-id "$INSTANCE" --action START --wait-for-state RUNNING >/dev/null 2>&1 || true
