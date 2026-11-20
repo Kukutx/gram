@@ -8,7 +8,8 @@
 # finds your Telegram ID, installs Docker and starts the bot with its own PostgreSQL.
 # Re-run it any time to update the bot or change the token.
 #
-# Optional overrides: OCI_TENANCY, GRAM_VM, GRAM_REF, GRAM_OCPUS, GRAM_MEMORY_GB, BOT_TOKEN, ADMIN_IDS.
+# Optional overrides: OCI_TENANCY, GRAM_VM, GRAM_REF, GRAM_OCPUS, GRAM_MEMORY_GB, BOT_TOKEN, ADMIN_IDS,
+# GRAM_TIME_ZONE (e.g. Europe/Rome; times in chats are UTC otherwise).
 set -euo pipefail
 
 VM="${GRAM_VM:-gram-bot}"
@@ -20,6 +21,11 @@ KEY="$HOME/.ssh/gram_oci"
 
 say() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31m%s\033[0m\n' "$*" >&2; exit 1; }
+if [[ -n "${GRAM_TIME_ZONE:-}" ]]; then # checked up front so a typo fails before anything is created
+  [[ "$GRAM_TIME_ZONE" =~ ^[A-Za-z][A-Za-z0-9_+/-]*$ &&
+    ( ! -d /usr/share/zoneinfo || -f "/usr/share/zoneinfo/$GRAM_TIME_ZONE" ) ]] ||
+    die "GRAM_TIME_ZONE=$GRAM_TIME_ZONE 不是有效时区，例如 Europe/Rome 或 Asia/Shanghai。"
+fi
 ask() { local reply; read -r -p "$1" reply < /dev/tty; printf '%s' "$reply"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
 command -v oci >/dev/null || die 'Run this in Oracle Cloud Shell: Oracle Cloud console → the >_ icon at the top right.'
@@ -192,6 +198,7 @@ say '5/6 安装并启动（首次大约 10-20 分钟，请保持这个窗口打�
 SETTINGS='BOT_MODE=polling\n'
 [[ -n "$KEEP" ]] || SETTINGS+="BOT_TOKEN=$TOKEN\n"
 [[ -n "$ADMINS" ]] && SETTINGS+="ADMIN_IDS=$ADMINS\n"
+[[ -n "${GRAM_TIME_ZONE:-}" ]] && SETTINGS+="TIME_ZONE=$GRAM_TIME_ZONE\n"
 # Off-server backups: a private bucket (Always Free Object Storage) and a write-only link that
 # the server's daily backup uploads to. A reclaimed or broken server then loses no data.
 # The link is shown only once, so it is (re)created only when the server does not have it yet.

@@ -130,7 +130,13 @@ export const zh = {
   stats:
     '用户：{users}（封禁 {banned}）\n工单：待处理 {open} · 处理中 {inProgress} · 已解决 {resolved} · 已结案 {closed}\n待发送消息：{pending}',
   status:
-    '待发送：{pending} 条\n积压等级：{health}\n最早待发送：{oldestSeconds} 秒前\n发送受阻：{blocked} 条\nWorker 心跳：{worker}\n发送心跳：{dispatch}\n保留清理心跳：{retention}',
+    '待发送：{pending} 条\n积压等级：{health}\n最早待发送：{oldest}\n发送受阻：{blocked} 条\nWorker 心跳：{worker}\n发送心跳：{dispatch}\n保留清理心跳：{retention}',
+  secondsAgo: '{seconds} 秒前',
+  healthEmpty: '无积压',
+  healthPending: '正常排队',
+  healthWarning: '偏慢（超过 10 分钟）',
+  healthCritical: '严重（超过 1 小时）',
+  healthUnknown: '未知',
   yes: '正常',
   no: '异常',
 

@@ -38,7 +38,9 @@ Oracle Cloud 的 Always Free 资源不限期免费，公网 IP 不另收费。�
 
 脚本 [`deploy/oracle-free.sh`](../deploy/oracle-free.sh) 做的事：找到主区域；创建网络 `gram-vcn`（只允许 SSH 进入，出站不限）；校验 Token、读取你的 Telegram ID；在各个可用域依次尝试创建机器（`gram-bot`，Ubuntu 24.04）；SSH 钥匙保存在 Cloud Shell 的 `~/.ssh/gram_oci`；然后和 GCP 一样运行 [`deploy/server-install.sh`](../deploy/server-install.sh)，安装在服务器上以 systemd 任务运行，断线不影响；设置每日备份上传到存储桶 `gram-backups`；最后建一个 1 元预算，有任何费用就发邮件。
 
-**再次运行同一条命令**就是更新，Token 处直接回车表示沿用原来的设置。可选环境变量：`OCI_TENANCY`、`GRAM_VM`、`GRAM_REF`、`GRAM_OCPUS`、`GRAM_MEMORY_GB`、`BOT_TOKEN`、`ADMIN_IDS`。
+**再次运行同一条命令**就是更新，Token 处直接回车表示沿用原来的设置。可选环境变量：`OCI_TENANCY`、`GRAM_VM`、`GRAM_REF`、`GRAM_OCPUS`、`GRAM_MEMORY_GB`、`BOT_TOKEN`、`ADMIN_IDS`、`GRAM_TIME_ZONE`。
+
+聊天里显示的时间默认是 UTC。想按本地时间显示，在命令前加上时区，例如 `GRAM_TIME_ZONE=Europe/Rome bash <(curl -fsSL …/oracle-free.sh)`（中国用 `Asia/Shanghai`）；GCP 脚本同样支持。其他部署方式在 `.env` 里设 `TIME_ZONE`。
 
 需要注意：
 

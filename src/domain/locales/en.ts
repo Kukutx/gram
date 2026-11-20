@@ -130,7 +130,13 @@ export const en: Record<keyof typeof zh, string> = {
   stats:
     'Users: {users} ({banned} banned)\nTickets: open {open} · in progress {inProgress} · resolved {resolved} · closed {closed}\nMessages waiting to send: {pending}',
   status:
-    'Waiting to send: {pending}\nBacklog severity: {health}\nOldest pending: {oldestSeconds} seconds\nBlocked: {blocked}\nWorker heartbeat: {worker}\nSend heartbeat: {dispatch}\nRetention heartbeat: {retention}',
+    'Waiting to send: {pending}\nBacklog severity: {health}\nOldest pending: {oldest}\nBlocked: {blocked}\nWorker heartbeat: {worker}\nSend heartbeat: {dispatch}\nRetention heartbeat: {retention}',
+  secondsAgo: '{seconds} s ago',
+  healthEmpty: 'none',
+  healthPending: 'normal',
+  healthWarning: 'slow (over 10 min)',
+  healthCritical: 'critical (over 1 h)',
+  healthUnknown: 'unknown',
   yes: 'ok',
   no: 'stale',
 

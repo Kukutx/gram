@@ -7,7 +7,8 @@ import {
 } from '../src/domain/feedback.ts';
 import { extractContent, validateContent } from '../src/domain/content.ts';
 import type { Message } from 'grammy/types';
-import { normalizeLanguage, t } from '../src/domain/i18n.ts';
+import { normalizeLanguage, outboxHealthLabel, t } from '../src/domain/i18n.ts';
+import { shortTime } from '../src/bot/render.ts';
 
 describe('feedback validation', () => {
   it('rejects blank content and commands', () => {
@@ -94,6 +95,19 @@ describe('localization', () => {
     expect(normalizeLanguage('en-US')).toBe('en');
     expect(normalizeLanguage(undefined)).toBe('zh');
     expect(normalizeLanguage('fr')).toBe('zh');
+  });
+  it('shows chat times in the configured time zone', () => {
+    const winter = new Date('2026-11-20T18:36:00Z');
+    expect(shortTime(winter)).toBe('2026-11-20 18:36');
+    expect(shortTime(winter, 'Europe/Rome')).toBe('2026-11-20 19:36');
+    expect(shortTime(winter, 'Asia/Shanghai')).toBe('2026-11-21 02:36');
+    expect(shortTime(new Date('2026-07-01T22:00:00Z'), 'Europe/Rome')).toBe('2026-07-02 00:00');
+  });
+  it('labels outbox health in the user language', () => {
+    expect(outboxHealthLabel('zh', 'empty')).toBe('无积压');
+    expect(outboxHealthLabel('en', 'critical')).toContain('critical');
+    expect(outboxHealthLabel('en', 'novel')).toBe('novel');
+    expect(t('zh', 'status', { oldest: t('zh', 'none') })).toContain('最早待发送：无');
   });
   it('renders localized placeholders', () => {
     expect(t('zh', 'id', { userId: 123, chatId: -456 })).toContain('123');

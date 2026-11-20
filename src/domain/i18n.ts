@@ -61,3 +61,16 @@ export function deliveryStatusLabel(language: Language, status: string): string 
   const key = DELIVERY_STATUS_KEYS[status as keyof typeof DELIVERY_STATUS_KEYS];
   return key ? t(language, key) : status;
 }
+
+const OUTBOX_HEALTH_KEYS = {
+  empty: 'healthEmpty',
+  pending: 'healthPending',
+  warning: 'healthWarning',
+  critical: 'healthCritical',
+  unknown: 'healthUnknown',
+} as const satisfies Record<string, TranslationKey>;
+
+export function outboxHealthLabel(language: Language, status: string): string {
+  const key = OUTBOX_HEALTH_KEYS[status as keyof typeof OUTBOX_HEALTH_KEYS];
+  return key ? t(language, key) : status;
+}
