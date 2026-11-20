@@ -43,7 +43,7 @@
     "@grammyjs/menu": "^1.5.0",
     "@prisma/adapter-pg": "^7.0.0",
     "@prisma/client": "^7.0.0",
-    "@sentry/node": "^10.0.0",
+    "@sentry/node": "^11.13.0",
     "abort-controller": "3.0.0",
     "dotenv": "^17.0.0",
     "fastify": "^5.0.0",
