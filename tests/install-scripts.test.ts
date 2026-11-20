@@ -52,4 +52,13 @@ suite('one-command install scripts', () => {
     expect(script).toContain('--boot-volume-size-in-gbs 50');
     expect(script).toContain('export OCI_CLI_REGION="$HOME_REGION"');
   });
+
+  it('copies backups off the server through a write-only link only', () => {
+    const script = read('oracle-free.sh');
+    expect(script).toContain('--access-type AnyObjectWrite');
+    expect(script).not.toMatch(/--public-access-type/);
+    const backup = read('backup.sh');
+    expect(backup).toContain('BACKUP_UPLOAD_URL');
+    expect(backup).toMatch(/gram-day-\$\(date -u \+%d\)/);
+  });
 });
