@@ -25,8 +25,25 @@ if ! swapon --show --noheadings | grep -q .; then
 fi
 
 say 'Packages: git, curl, automatic security updates'
-# A fresh VM often runs its own apt jobs at boot; wait for their lock instead of failing.
-apt_get() { apt-get -o DPkg::Lock::Timeout=600 "$@"; }
+# A fresh VM runs cloud-init and its own apt jobs at boot. Let them finish first, then retry:
+# DPkg::Lock::Timeout waits for the dpkg lock but not for the lists lock that `apt-get update` takes.
+wait_for_apt() {
+  if command -v cloud-init >/dev/null; then timeout 900 cloud-init status --wait >/dev/null 2>&1 || true; fi
+  for _ in $(seq 1 120); do
+    pgrep -x 'apt|apt-get|dpkg|unattended-upgr' >/dev/null || return 0
+    sleep 5
+  done
+}
+apt_get() {
+  local try
+  for try in 1 2 3 4 5 6; do
+    apt-get -o DPkg::Lock::Timeout=600 "$@" && return 0
+    echo "apt is busy (attempt $try), retrying in 20 s..." >&2
+    sleep 20
+  done
+  return 1
+}
+wait_for_apt
 apt_get update -qq
 apt_get install -y -qq ca-certificates curl git openssl unattended-upgrades >/dev/null
 

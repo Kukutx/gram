@@ -214,7 +214,7 @@ if ! ssh_vm 'sudo grep -q "^BACKUP_UPLOAD_URL=" /opt/gram/.env' 2>/dev/null; the
   fi
 fi
 printf '%b' "$SETTINGS" |
-  ssh_vm 'sudo install -d -m 700 /etc/gram && sudo tee /etc/gram/env.install >/dev/null && sudo chmod 600 /etc/gram/env.install'
+  ssh_vm 'sudo install -d -m 700 /etc/gram && sudo tee -a /etc/gram/env.install >/dev/null && sudo chmod 600 /etc/gram/env.install'
 # The install runs as a systemd unit on the server, so a dropped Cloud Shell connection does
 # not stop it; re-running this command just shows its progress again.
 ssh_vm "sudo env RAW=$RAW GRAM_REF=$REF bash -s" <<'REMOTE' ||
@@ -224,7 +224,8 @@ if systemctl is-active --quiet gram-install; then
   echo '安装已经在进行中，继续显示进度...'
 else
   rm -f "$status"
-  curl -fsSL "$RAW/server-install.sh" -o /root/gram-install.sh || exit 1
+  # The query string skips GitHub's few-minute cache, so a fix pushed a moment ago is used.
+  curl -fsSL "$RAW/server-install.sh?t=$(date +%s)" -o /root/gram-install.sh || exit 1
   : > "$log"
   systemd-run --quiet --collect --unit=gram-install --setenv=GRAM_REF="$GRAM_REF" \
     /bin/bash -c "bash /root/gram-install.sh > $log 2>&1; echo \$? > $status" || exit 1

@@ -22,7 +22,7 @@ suite('one-command install scripts', () => {
       const sshCommands = script.split('\n').filter((line) => line.includes('ssh_vm '));
       expect(sshCommands.length).toBeGreaterThan(0);
       for (const line of sshCommands) expect(line).not.toContain('TOKEN');
-      expect(script).toContain('tee /etc/gram/env.install');
+      expect(script).toContain('tee -a /etc/gram/env.install');
     },
   );
 
