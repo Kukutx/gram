@@ -68,7 +68,8 @@
   },
   "pnpm": {
     "overrides": {
-      "@typescript-eslint/typescript-estree>minimatch": "^11.0.1"
+      "@typescript-eslint/typescript-estree>minimatch": "^11.0.1",
+      "@prisma/config>effect": "^3.22.5"
     },
     "onlyBuiltDependencies": [
       "@prisma/engines",
