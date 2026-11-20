@@ -36,14 +36,16 @@ Oracle Cloud 的 Always Free 资源不限期免费，公网 IP 不另收费。�
 4. 按提示粘贴 Token；看到提示后在 Telegram 里给你的机器人发 `/start`。
 5. 等脚本跑完（首次 10–20 分钟），给机器人发 `/start` 和 `/help` 试一下。
 
-脚本 [`deploy/oracle-free.sh`](../deploy/oracle-free.sh) 做的事：找到主区域；创建网络 `gram-vcn`（只允许 SSH 进入，出站不限）；校验 Token、读取你的 Telegram ID；在各个可用域依次尝试创建机器（`gram-bot`，Ubuntu 24.04）；SSH 钥匙保存在 Cloud Shell 的 `~/.ssh/gram_oci`；然后和 GCP 一样运行 [`deploy/server-install.sh`](../deploy/server-install.sh)，安装在服务器上以 systemd 任务运行，断线不影响；最后建一个 1 元预算，有任何费用就发邮件。
+脚本 [`deploy/oracle-free.sh`](../deploy/oracle-free.sh) 做的事：找到主区域；创建网络 `gram-vcn`（只允许 SSH 进入，出站不限）；校验 Token、读取你的 Telegram ID；在各个可用域依次尝试创建机器（`gram-bot`，Ubuntu 24.04）；SSH 钥匙保存在 Cloud Shell 的 `~/.ssh/gram_oci`；然后和 GCP 一样运行 [`deploy/server-install.sh`](../deploy/server-install.sh)，安装在服务器上以 systemd 任务运行，断线不影响；设置每日备份上传到存储桶 `gram-backups`；最后建一个 1 元预算，有任何费用就发邮件。
 
 **再次运行同一条命令**就是更新，Token 处直接回车表示沿用原来的设置。可选环境变量：`OCI_TENANCY`、`GRAM_VM`、`GRAM_REF`、`GRAM_OCPUS`、`GRAM_MEMORY_GB`、`BOT_TOKEN`、`ADMIN_IDS`。
 
 需要注意：
 
 - **没有空闲机器**：Oracle 热门区域常提示 "Out of host capacity"。过一两个小时再运行同一条命令即可。
-- **闲置回收**：Oracle 可能回收 7 天内 CPU、网络、内存使用率都低于 20% 的免费机器，客服机器人通常就是这种状态。部署成功后建议在控制台把账号升级为 Pay As You Go（按量付费）：Always Free 资源升级后照样免费，而且据大量用户反馈不再被闲置回收（Oracle 文档没有明说）；脚本建的预算提醒会在出现任何费用时通知你。
+- **闲置回收**：Oracle 可能回收 7 天内 CPU、网络、内存使用率都低于 20% 的免费机器，客服机器人通常就是这种状态。所以脚本会建一个私有存储桶 `gram-backups`（Always Free 对象存储，20 GB），每天的备份除了留在服务器上，还会上传一份（按日期命名 `gram-day-01` … `gram-day-31`，滚动保留一个月）。机器被回收后，重新运行脚本，再按下面的方法恢复最近的备份即可。想彻底避免回收，可以把账号升级为 Pay As You Go：Always Free 资源升级后照样免费，但账号从此可以产生费用，个人试用一般不必升级。
+- **从存储桶恢复**：在控制台 Storage → Buckets → `gram-backups` 下载最新的 `gram-day-XX.sql.gz`，上传到服务器（Cloud Shell 里 `scp -i ~/.ssh/gram_oci 文件 ubuntu@服务器IP:`），然后在服务器上运行：`gunzip -c gram-day-XX.sql.gz | sudo docker compose --env-file /opt/gram/.env -f /opt/gram/deploy/compose.yaml exec -T postgres psql -U bot -d grammy_bot`。
+- **两个项目共用免费额度**：A1 一共 2 核 12 GB，可以拆成两台。给这个机器人用一半：`GRAM_OCPUS=1 GRAM_MEMORY_GB=6 bash <(curl -fsSL …/oracle-free.sh)`，另一半留给别的项目。
 - **钥匙**：SSH 钥匙只在主区域的 Cloud Shell 里保存。Cloud Shell 半年不用会被清空，到时在控制台删除 `gram-bot` 再运行脚本即可（数据库会一起删除，先用 `deploy/backup.sh` 备份）。
 - 2026 年 6 月起 A1 免费额度为 2 核、12 GB；`GRAM_OCPUS` / `GRAM_MEMORY_GB` 调大会超出免费额度。
 

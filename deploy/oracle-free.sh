@@ -158,6 +158,27 @@ say '5/6 安装并启动（首次大约 10-20 分钟，请保持这个窗口打�
 SETTINGS='BOT_MODE=polling\n'
 [[ -n "$KEEP" ]] || SETTINGS+="BOT_TOKEN=$TOKEN\n"
 [[ -n "$ADMINS" ]] && SETTINGS+="ADMIN_IDS=$ADMINS\n"
+# Off-server backups: a private bucket (Always Free Object Storage) and a write-only link that
+# the server's daily backup uploads to. A reclaimed or broken server then loses no data.
+# The link is shown only once, so it is (re)created only when the server does not have it yet.
+if ! ssh_vm 'sudo grep -q "^BACKUP_UPLOAD_URL=" /opt/gram/.env' 2>/dev/null; then
+  NS="$(oci os ns get -c "$TENANCY" 2>/dev/null | json 'print(d["data"])' 2>/dev/null || true)"
+  if [[ -n "$NS" ]]; then
+    oci os bucket get -ns "$NS" -bn gram-backups >/dev/null 2>&1 ||
+      oci os bucket create -ns "$NS" -c "$TENANCY" --name gram-backups >/dev/null 2>&1 || true
+    for par in $(oci os preauth-request list -ns "$NS" -bn gram-backups --all 2>/dev/null |
+      json 'print(" ".join(p["id"] for p in d.get("data",[]) if p["name"]=="gram-backup-upload"))' 2>/dev/null); do
+      oci os preauth-request delete -ns "$NS" -bn gram-backups --par-id "$par" --force >/dev/null 2>&1 || true
+    done
+    UPLOAD="$(oci os preauth-request create -ns "$NS" -bn gram-backups --name gram-backup-upload \
+      --access-type AnyObjectWrite --time-expires "$(date -u -d '+10 years' +%Y-%m-%dT00:00:00Z)" 2>/dev/null |
+      json 'p=d["data"]; print(p.get("full-path") or "https://objectstorage.'"${OCI_CLI_REGION:-${OCI_REGION:-}}"'.oraclecloud.com"+p["access-uri"])' 2>/dev/null || true)"
+    if [[ "$UPLOAD" == https://* ]]; then
+      SETTINGS+="BACKUP_UPLOAD_URL=$UPLOAD\n"
+      echo '每日备份会另外保存一份到 Oracle 存储桶 gram-backups。'
+    fi
+  fi
+fi
 printf '%b' "$SETTINGS" |
   ssh_vm 'sudo install -d -m 700 /etc/gram && sudo tee /etc/gram/env.install >/dev/null && sudo chmod 600 /etc/gram/env.install'
 # The install runs as a systemd unit on the server, so a dropped Cloud Shell connection does
