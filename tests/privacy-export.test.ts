@@ -3,7 +3,7 @@ import type { Database } from '../src/db/client.ts';
 import {
   decodeExportCursor,
   encodeExportCursor,
-  exportFeedbackWhere,
+  beforeCursor,
   EXPORT_PAGE_SIZE,
   getPersonalDataExportPage,
 } from '../src/privacy/export.ts';
@@ -15,10 +15,8 @@ describe('personal data export cursor', () => {
     const cursor = { createdAt, id: 'cuid_123' };
     expect(decodeExportCursor(encodeExportCursor(cursor))).toEqual(cursor);
     expect(decodeExportCursor('')).toBeUndefined();
-    expect(exportFeedbackWhere('account')).toEqual({ userId: 'account' });
-    const filter = exportFeedbackWhere('account', cursor);
-    expect(filter.userId).toBe('account');
-    expect(filter.OR).toHaveLength(2);
+    expect(beforeCursor()).toEqual({});
+    expect(beforeCursor(cursor).OR).toHaveLength(2);
   });
 
   it('rejects malformed or forged pagination data before hitting PostgreSQL', () => {
@@ -47,45 +45,65 @@ describe('bounded privacy export', () => {
     updatedAt: createdAt,
     lastSeenAt: createdAt,
   };
-  it('limits query and document to one page and preserves a safe continuation cursor', async () => {
-    const rows = Array.from({ length: EXPORT_PAGE_SIZE + 1 }, (_, i) => ({
-      id: `fb${String(i).padStart(3, '0')}`,
-      text: `Feedback ${i}`,
-      createdAt,
-      notifiedAt: null,
-    }));
-    const findUnique = vi.fn(async () => user);
-    const findMany = vi.fn(
-      async (...args: [{ where: { userId: string }; take: number; orderBy: unknown[] }]) => {
+  const fake = (rows: unknown[]) => {
+    const messages = vi.fn(
+      async (args: { where: Record<string, unknown>; take: number; orderBy: unknown[] }) => {
         void args;
         return rows;
       },
     );
-    const db = { telegramUser: { findUnique }, feedback: { findMany } } as unknown as Database;
+    const tickets = vi.fn(async () => [
+      { number: 1, status: 'open', createdAt, resolvedAt: null, lastMessageAt: createdAt },
+    ]);
+    const db = {
+      telegramUser: { findUnique: vi.fn(async () => user) },
+      ticket: { findMany: tickets },
+      ticketMessage: { findMany: messages },
+    } as unknown as Database;
+    return { db, messages };
+  };
+
+  it('limits query and document to one page and preserves a safe continuation cursor', async () => {
+    const rows = Array.from({ length: EXPORT_PAGE_SIZE + 1 }, (_, i) => ({
+      id: `m${String(i).padStart(3, '0')}`,
+      direction: i % 2 ? 'outbound' : 'inbound',
+      text: `Message ${i}`,
+      attachmentType: null,
+      createdAt,
+      ticket: { number: 1 },
+      deliveries: [],
+    }));
+    const { db, messages } = fake(rows);
     const page = await getPersonalDataExportPage(db, 123456789);
     expect(page?.count).toBe(EXPORT_PAGE_SIZE);
-    expect(findMany).toHaveBeenCalledWith(
+    expect(messages).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { userId: 'db-internal-id' },
+        where: { ticket: { userId: 'db-internal-id' } },
         take: EXPORT_PAGE_SIZE + 1,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
     );
     const decoded = JSON.parse(page!.fileContents.toString('utf8'));
+    expect(decoded.schemaVersion).toBe(3);
     expect(decoded.user.telegramId).toBe('123456789');
     expect(decoded.user).not.toHaveProperty('id');
-    expect(decoded.feedback).toHaveLength(EXPORT_PAGE_SIZE);
+    expect(decoded.tickets).toHaveLength(1);
+    expect(decoded.messages).toHaveLength(EXPORT_PAGE_SIZE);
     expect(decoded.pagination.hasMore).toBe(true);
-    expect(decodeExportCursor(page?.nextCursor ?? undefined)?.id).toBe('fb049');
-    await getPersonalDataExportPage(db, 123456789, decodeExportCursor(page?.nextCursor ?? undefined));
-    expect(findMany.mock.calls[1]?.[0]?.where.userId).toBe('db-internal-id');
+    const cursor = decodeExportCursor(page?.nextCursor ?? undefined);
+    expect(cursor?.id).toBe(`m${String(EXPORT_PAGE_SIZE - 1).padStart(3, '0')}`);
+    await getPersonalDataExportPage(db, 123456789, cursor);
+    const second = messages.mock.calls[1]?.[0];
+    expect(second?.where.ticket).toEqual({ userId: 'db-internal-id' });
+    expect(second?.where.OR).toHaveLength(2);
   });
 
   it('returns null when the user was already erased', async () => {
     const findMany = vi.fn();
     const db = {
       telegramUser: { findUnique: vi.fn(async () => null) },
-      feedback: { findMany },
+      ticket: { findMany },
+      ticketMessage: { findMany },
     } as unknown as Database;
     expect(await getPersonalDataExportPage(db, 1)).toBeNull();
     expect(findMany).not.toHaveBeenCalled();

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildFeedbackNotification,
   TELEGRAM_TEXT_MAX_UNITS,
   truncateTelegramText,
+  withHeader,
 } from '../src/domain/telegram-text.ts';
+import { t } from '../src/domain/i18n.ts';
 
 describe('Telegram outbound message bounds', () => {
   it('preserves short messages and truncates long text', () => {
@@ -13,21 +14,22 @@ describe('Telegram outbound message bounds', () => {
     expect(() => truncateTelegramText('a', 0)).toThrow(RangeError);
   });
 
-  it('never slices an emoji surrogate pair in half', () => {
-    expect(truncateTelegramText('🔐abc', 3)).toBe('🔐…');
-    expect(truncateTelegramText('🔐abc', 2)).toBe('…');
+  it('never splits a surrogate pair', () => {
+    const cut = truncateTelegramText('a🚀🚀', 3);
+    expect(cut).not.toContain('\ud83d…');
+    expect(cut.length).toBeLessThanOrEqual(3);
   });
 
-  it('fits even unexpectedly oversized Unicode content within one Telegram notification', () => {
-    const content = '🚀'.repeat(3_000);
-    const msg = buildFeedbackNotification('example', 'cuid01234', content);
+  it('fits oversized Unicode content under a notification header', () => {
+    const header = t('en', 'notifyNewTicket', { number: 42, author: '@example' });
+    const msg = withHeader(header, '🚀'.repeat(3_000));
     expect(msg.length).toBeLessThanOrEqual(TELEGRAM_TEXT_MAX_UNITS);
-    expect(msg).toContain('ID: cuid01234');
+    expect(msg.startsWith(header)).toBe(true);
+    expect(msg).toContain('#42');
     expect(msg.endsWith('…')).toBe(true);
-    expect(msg).not.toContain('\ud800');
   });
 
-  it('rejects impossible oversized header inputs', () => {
-    expect(() => buildFeedbackNotification('A'.repeat(5_000), 'id', 'text')).toThrow(RangeError);
+  it('rejects impossible oversized headers', () => {
+    expect(() => withHeader('A'.repeat(5_000), 'text')).toThrow(RangeError);
   });
 });

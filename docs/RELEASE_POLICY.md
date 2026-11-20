@@ -1,8 +1,6 @@
 # 生产发布与依赖锁定
 
-> v1.5 已提交真实锁文件到当前工作目录，CI 增加格式、依赖审计和真实 Redis 测试，CD 依赖同一提交 CI。部署、摘要晋级、验证与恢复详见 [UPGRADE_1_5.md](UPGRADE_1_5.md)。当前目录没有 Git 元数据，仍需维护方将变更和锁文件提交到实际仓库。
-
-v1.4.0 严格区分**可审阅源码**和**已经联网构建验收的制品**。
+仓库里已经提交了真实的锁文件。CI 会运行格式检查、依赖审计和真实 PostgreSQL 集成测试，CD 依赖同一提交的 CI 结果。
 
 ## 为什么必须要 `pnpm-lock.yaml`
 
@@ -17,14 +15,12 @@ v1.4.0 严格区分**可审阅源码**和**已经联网构建验收的制品**�
 
 1. 提交匹配代码的锁文件并经过 PR review。
 2. 运行 `pnpm release:verify` 及 Docker 构建。CI 集成测试连接**独立的** PostgreSQL。
-3. 在 staging 使用真实 Telegram Bot Token 验证 Webhook、语言菜单、隐私数据导出、反馈投递与队列重试。
+3. 在 staging 用真实的 Telegram Bot Token 走一遍：提交工单、客服回复（私聊和群话题各一次）、用户再回复、按钮结案、隐私导出，以及停掉 Worker 再恢复。
 4. 备份 Cloud SQL，手动批准 production CD；优先保留上一版 Cloud Run/Worker 镜像以便快速回滚。
-5. 发布后观测 `pnpm outbox:status`、`/ready`、Worker 日志、Sentry 和反馈通知积压。
+5. 发布后观察 `outbox:status`、`/ops/health`、Worker 日志、Sentry，以及发件箱积压和停放数量。
 
 ## 操作边界
 
-Cloud Run Worker Pool 仍需常驻实例才能持续补偿与推送通知；停用 Worker 会导致 PostgreSQL 待通知记录累积。Telegram 与 PostgreSQL 之间不可能由本项目保证物理上的 exactly-once 跨系统消息投递。故障期间可能重复管理员通知，应以反馈 ID 人工/程序去重。
+Worker 必须常驻，所有消息都由它发送；停掉 Worker 会让待发消息在 PostgreSQL 里累积。Telegram 和 PostgreSQL 之间无法保证恰好一次投递，故障时可能有一条消息重复发送。
 
-## v1.4 新验收文档
-
-分环境、权限、Telegram/Webhook、数据与恢复的完整检查见 [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)。
+上线检查清单见 [DEPLOY.md](DEPLOY.md#上线检查清单)。

@@ -1,3 +1,4 @@
+# Local development databases. Production stack: deploy/compose.yaml (docs/DEPLOY.md).
 services:
   postgres:
     image: postgres:17-alpine
@@ -15,12 +16,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+  # Optional, only for shared rate limiting: docker compose --profile redis up -d
   redis:
     image: redis:7-alpine
+    profiles: ['redis']
     restart: unless-stopped
     ports:
       - '127.0.0.1:6379:6379'
-    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
     volumes:
       - redis-data:/data
     healthcheck:

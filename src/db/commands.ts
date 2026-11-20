@@ -1,8 +1,10 @@
 import type { Database } from './client.ts';
 import type { Prisma } from '../generated/prisma/client.ts';
 
-type Transaction = Prisma.TransactionClient;
-export const RECEIPT_RETENTION_MS = 7 * 86_400_000;
+import { RECEIPT_RETENTION_MS } from '../config/constants.ts';
+
+export type Transaction = Prisma.TransactionClient;
+export { RECEIPT_RETENTION_MS };
 
 /** Serialized database mutations only: never hold this transaction across Telegram calls. */
 export async function userMutation<T>(

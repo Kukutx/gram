@@ -3,7 +3,6 @@ import * as Sentry from '@sentry/node';
 import { parseConfig } from './config/env.ts';
 import { createPrisma } from './db/client.ts';
 import { createBot } from './bot/create-bot.ts';
-import { createNotifications } from './queue/notifications.ts';
 import { createLogger } from './observability/logger.ts';
 import { createServer } from './server.ts';
 import { createRateLimiter } from './security/rate-limit.ts';
@@ -18,7 +17,6 @@ async function main(): Promise<void> {
   // Register handlers before opening connections. Each resource is assigned as
   // soon as it is constructed so a mid-startup exception releases everything.
   let db: ReturnType<typeof createPrisma> | undefined;
-  let notifications: ReturnType<typeof createNotifications> = undefined;
   let rateLimiter: ReturnType<typeof createRateLimiter> | undefined;
   let bot: ReturnType<typeof createBot> | undefined;
   let app: ReturnType<typeof createServer> | undefined;
@@ -41,7 +39,6 @@ async function main(): Promise<void> {
     }
     if (bot?.isRunning()) await safeClose('bot', async () => bot!.stop());
     if (app) await safeClose('http', () => app!.close());
-    if (notifications) await safeClose('notifications', () => notifications!.close());
     if (rateLimiter) await safeClose('ratelimiter', () => rateLimiter!.close());
     if (db) await safeClose('postgres', () => db!.$disconnect());
     await safeClose('sentry', () => Sentry.flush(2_000));
@@ -63,12 +60,12 @@ async function main(): Promise<void> {
       await db.$disconnect();
       return;
     }
-    notifications = createNotifications(config, logger);
     rateLimiter = createRateLimiter(config, logger);
-    bot = createBot({ config, db, logger, rateLimiter, ...(notifications ? { notifications } : {}) });
-    app = config.BOT_MODE === 'webhook' ? createServer({ config, db, bot, logger }) : undefined;
+    bot = createBot({ config, db, logger, rateLimiter });
+    // Health/metrics are served in both modes so any orchestrator can probe the process.
+    app = createServer({ config, db, bot, logger });
 
-    if (app) {
+    if (config.BOT_MODE === 'webhook') {
       // Invalid Bot Token / unavailable Telegram API must fail before accepting webhooks.
       await bot.init();
       if (closing) return;
@@ -76,10 +73,11 @@ async function main(): Promise<void> {
       await app.listen({ port: config.PORT, host: '0.0.0.0' });
       logger.info({ port: config.PORT, webhookPath: config.WEBHOOK_PATH }, 'Webhook server ready');
     } else {
+      await app.listen({ port: config.PORT, host: '0.0.0.0' });
       // Polling is mutually exclusive with registered Telegram webhooks.
       await bot.api.deleteWebhook({ drop_pending_updates: false });
       if (closing) return;
-      logger.info('Bot starting in long-polling mode');
+      logger.info({ port: config.PORT }, 'Bot starting in long-polling mode');
       await bot.start({ onStart: (info) => logger.info({ username: info.username }, 'Bot started') });
     }
   } catch (error) {

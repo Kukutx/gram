@@ -20,9 +20,9 @@ export function truncateTelegramText(text: string, maxUnits: number): string {
   return `${text.slice(0, cut)}…`;
 }
 
-export function buildFeedbackNotification(author: string, feedbackId: string, content: string): string {
-  const header = `📝 New feedback\nFrom: ${author}\nID: ${feedbackId}\n\n`;
+/** Fits a localized header plus as much of the body as Telegram accepts. */
+export function withHeader(header: string, content: string): string {
   const remaining = TELEGRAM_TEXT_MAX_UNITS - header.length;
-  if (remaining < 1) throw new RangeError('Feedback notification header exceeds Telegram limit');
+  if (remaining < 1) throw new RangeError('Notification header exceeds Telegram limit');
   return header + truncateTelegramText(content, remaining);
 }

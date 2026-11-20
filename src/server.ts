@@ -12,9 +12,25 @@ import { operationalMetrics } from './observability/metrics.ts';
 export type ServerDeps = {
   config: AppConfig;
   db: Database;
-  bot: Bot<BotContext>;
+  /** Mounted on WEBHOOK_PATH in webhook mode; omitted for the worker's probe server. */
+  bot?: Bot<BotContext>;
   logger: Logger;
 };
+
+/** Collapses concurrent/rapid scrapes into one database round of health queries. */
+function cached<T>(load: () => Promise<T>, ttlMs: number): () => Promise<T> {
+  let value: { at: number; promise: Promise<T> } | undefined;
+  return () => {
+    if (!value || Date.now() - value.at > ttlMs) {
+      const promise = load();
+      value = { at: Date.now(), promise };
+      promise.catch(() => {
+        value = undefined;
+      });
+    }
+    return value.promise;
+  };
+}
 
 /** Checks untrusted requests before grammY's first getMe() initialization call. */
 export function verifyWebhookSecret(header: unknown, expected: string): boolean {
@@ -24,8 +40,14 @@ export function verifyWebhookSecret(header: unknown, expected: string): boolean 
   return suppliedBytes.length === expectedBytes.length && timingSafeEqual(suppliedBytes, expectedBytes);
 }
 
+/**
+ * HTTP surface for every process: liveness/readiness probes, protected operational
+ * health and Prometheus metrics, plus the Telegram webhook when a bot runs in webhook mode.
+ */
 export function createServer({ config, db, bot, logger }: ServerDeps) {
-  if (!config.WEBHOOK_SECRET) throw new Error('WEBHOOK_SECRET required for HTTP webhook');
+  const webhook = bot !== undefined && config.BOT_MODE === 'webhook';
+  if (webhook && !config.WEBHOOK_SECRET) throw new Error('WEBHOOK_SECRET required for HTTP webhook');
+  const health = cached(() => operationsHealth(db, config), 5_000);
   const app = Fastify({
     logger: false,
     trustProxy: false,
@@ -50,8 +72,8 @@ export function createServer({ config, db, bot, logger }: ServerDeps) {
     app.get('/ops/health', async (request, reply) => {
       if (!verifyWebhookSecret(request.headers.authorization, `Bearer ${config.METRICS_TOKEN}`))
         return reply.code(401).send({ error: 'unauthorized' });
-      const health = await operationsHealth(db, config);
-      return reply.code(health.healthy ? 200 : 503).send(health);
+      const result = await health();
+      return reply.code(result.healthy ? 200 : 503).send(result);
     });
     app.get('/metrics', async (request, reply) => {
       if (!verifyWebhookSecret(request.headers.authorization, `Bearer ${config.METRICS_TOKEN}`)) {
@@ -59,18 +81,18 @@ export function createServer({ config, db, bot, logger }: ServerDeps) {
       }
       // Runtime metrics remain available if operational DB queries fail.
       try {
-        const health = await operationsHealth(db, config);
-        operationalMetrics.set({ metric: 'worker_required' }, Number(health.workerRequired));
-        operationalMetrics.set({ metric: 'worker_fresh' }, Number(health.workerFresh));
-        operationalMetrics.set({ metric: 'dispatch_fresh' }, Number(health.dispatchFresh));
-        operationalMetrics.set({ metric: 'retention_fresh' }, Number(health.retentionFresh));
-        operationalMetrics.set({ metric: 'pending' }, health.pending + health.pendingReplies);
-        operationalMetrics.set({ metric: 'blocked' }, health.blocked + health.blockedReplies);
+        const result = await health();
+        operationalMetrics.set({ metric: 'worker_required' }, Number(result.workerRequired));
+        operationalMetrics.set({ metric: 'worker_fresh' }, Number(result.workerFresh));
+        operationalMetrics.set({ metric: 'dispatch_fresh' }, Number(result.dispatchFresh));
+        operationalMetrics.set({ metric: 'retention_fresh' }, Number(result.retentionFresh));
+        operationalMetrics.set({ metric: 'pending' }, result.pending);
+        operationalMetrics.set({ metric: 'blocked' }, result.blocked);
         operationalMetrics.set(
           { metric: 'oldest_pending_seconds' },
-          health.oldestPendingAgeSeconds ?? 0,
+          result.oldestPendingAgeSeconds ?? 0,
         );
-        operationalMetrics.set({ metric: 'retention_overdue_seconds' }, health.retentionOverdueSeconds);
+        operationalMetrics.set({ metric: 'retention_overdue_seconds' }, result.retentionOverdueSeconds);
         operationalMetrics.set({ metric: 'database_query_ok' }, 1);
       } catch {
         operationalMetrics.set({ metric: 'database_query_ok' }, 0);
@@ -82,26 +104,27 @@ export function createServer({ config, db, bot, logger }: ServerDeps) {
   // Fastify rejects unauthorized requests BEFORE grammY initializes the bot
   // (which otherwise may contact Telegram getMe on a fresh instance).
   // grammY independently rechecks the same secret before dispatching updates.
-  app.post(
-    config.WEBHOOK_PATH,
-    {
-      onRequest: async (request, reply) => {
-        if (
-          !verifyWebhookSecret(
-            request.headers['x-telegram-bot-api-secret-token'],
-            config.WEBHOOK_SECRET!,
-          )
-        ) {
-          return reply.code(401).send({ error: 'unauthorized' });
-        }
+  if (webhook)
+    app.post(
+      config.WEBHOOK_PATH,
+      {
+        onRequest: async (request, reply) => {
+          if (
+            !verifyWebhookSecret(
+              request.headers['x-telegram-bot-api-secret-token'],
+              config.WEBHOOK_SECRET!,
+            )
+          ) {
+            return reply.code(401).send({ error: 'unauthorized' });
+          }
+        },
       },
-    },
-    webhookCallback(bot, 'fastify', {
-      secretToken: config.WEBHOOK_SECRET,
-      timeoutMilliseconds: 9_500,
-      onTimeout: 'throw',
-    }),
-  );
+      webhookCallback(bot!, 'fastify', {
+        secretToken: config.WEBHOOK_SECRET,
+        timeoutMilliseconds: 9_500,
+        onTimeout: 'throw',
+      }),
+    );
 
   app.setErrorHandler((error, request, reply) => {
     logger.error({ err: error, route: request.routeOptions.url }, 'HTTP request failed');

@@ -32,6 +32,33 @@ describe('configuration validation', () => {
   });
   it('rejects non-integer administrator ids', () => {
     expect(() => parseConfig({ ...base, ADMIN_TELEGRAM_ID: 'abc' })).toThrow(/ADMIN_TELEGRAM_ID/);
+    expect(() => parseConfig({ ...base, ADMIN_IDS: '1, x' })).toThrow(/ADMIN_IDS/);
+    expect(() => parseConfig({ ...base, ADMIN_CHAT_ID: '123' })).toThrow(/ADMIN_CHAT_ID/);
+  });
+  it('merges ADMIN_IDS with the deprecated single admin setting', () => {
+    expect(parseConfig({ ...base, ADMIN_IDS: '1, 2 3', ADMIN_TELEGRAM_ID: '2' }).ADMIN_IDS).toEqual([
+      1, 2, 3,
+    ]);
+    expect(parseConfig({ ...base, ADMIN_TELEGRAM_ID: '9' }).ADMIN_IDS).toEqual([9]);
+    expect(parseConfig(base).ADMIN_IDS).toEqual([]);
+    expect(parseConfig(base)).not.toHaveProperty('ADMIN_TELEGRAM_ID');
+  });
+  it('requires a support group for forum topics and parses intake options', () => {
+    expect(() => parseConfig({ ...base, ADMIN_USE_TOPICS: 'true' })).toThrow(/ADMIN_USE_TOPICS/);
+    const config = parseConfig({
+      ...base,
+      ADMIN_CHAT_ID: '-1001234567890',
+      ADMIN_USE_TOPICS: 'yes',
+      INTAKE_MODE: 'direct',
+      NOTIFY_USER_ON_STATUS: 'off',
+    });
+    expect(config).toMatchObject({
+      ADMIN_CHAT_ID: -1001234567890,
+      ADMIN_USE_TOPICS: true,
+      INTAKE_MODE: 'direct',
+      NOTIFY_USER_ON_STATUS: false,
+    });
+    expect(() => parseConfig({ ...base, INTAKE_MODE: 'chat' })).toThrow(/INTAKE_MODE/);
   });
   it('checks Redis URL and public URL protocol', () => {
     expect(() => parseConfig({ ...base, REDIS_URL: 'http://localhost' })).toThrow(/REDIS_URL/);
@@ -49,6 +76,10 @@ describe('Telegram-only management CLI', () => {
       parseTelegramCliConfig({ BOT_TOKEN: base.BOT_TOKEN, WEBHOOK_MAX_CONNECTIONS: 20 })
         .WEBHOOK_MAX_CONNECTIONS,
     ).toBe(20);
+    expect(
+      parseTelegramCliConfig({ BOT_TOKEN: base.BOT_TOKEN, ADMIN_IDS: '5', ADMIN_TELEGRAM_ID: '6' })
+        .ADMIN_IDS,
+    ).toEqual([5, 6]);
   });
   it('rejects malformed webhook secrets and non-HTTPS URLs', async () => {
     const { parseTelegramCliConfig } = await import('../src/config/env.ts');

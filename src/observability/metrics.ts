@@ -23,10 +23,11 @@ export const updateDuration = new Histogram({
   registers: [registry],
 });
 
-/** Redis is a notification accelerator; a failed enqueue is recovered from DB. */
-export const notificationEnqueueFailures = new Counter({
-  name: 'grammy_bot_notification_enqueue_failures_total',
-  help: 'Queue publishes that failed after a feedback was committed',
+/** Outbox send attempts by outcome (sent, retry, blocked, gone, lost_lease, error). */
+export const deliveryOutcomes = new Counter({
+  name: 'grammy_bot_delivery_outcomes_total',
+  help: 'Outbox delivery attempts by outcome',
+  labelNames: ['outcome'] as const,
   registers: [registry],
 });
 
