@@ -208,6 +208,16 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
     expect(String(telegram.last('answerCallbackQuery')?.payload.text)).toContain(`#${number}`);
     sent = await flush(groupConfig, [user]);
     expect(String(sent.last('sendMessage')?.payload.text)).toContain('resolved');
+    // The pressed notification now offers the next steps for a resolved ticket.
+    const markup = JSON.stringify(telegram.last('editMessageReplyMarkup')?.payload.reply_markup);
+    expect(markup).toContain(`tk:${number}:open`);
+    expect(markup).toContain(`tk:${number}:closed`);
+    expect(markup).not.toContain(`tk:${number}:resolved`);
+    await bot.handleUpdate(callback(admin, `tk:${number}:open`, supergroup));
+    expect((await db.ticket.findUniqueOrThrow({ where: { id: ticket.id } })).status).toBe('open');
+    expect(JSON.stringify(telegram.last('editMessageReplyMarkup')?.payload.reply_markup)).toContain(
+      `tk:${number}:assign`,
+    );
 
     // Commands in the topic need no ticket number.
     telegram.clear();
@@ -260,6 +270,36 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
     expect(
       await db.ticketMessage.count({ where: { ticketId: opened.ticketId, direction: 'outbound' } }),
     ).toBe(1);
+  });
+
+  it('continues a ticket in progress from a plain message, and points to /feedback otherwise', async () => {
+    const config: AppConfig = { ...base, ADMIN_IDS: [admin] };
+    const { bot, telegram } = makeBot(config);
+    const stranger = other + 100;
+    await bot.handleUpdate(message(stranger, { text: 'Hello?' }));
+    expect(replies(telegram).at(-1)).toContain('/feedback');
+    await touchUser(db, person(stranger));
+    const opened = await openTicket(db, stranger, next(), { text: 'First', attachment: null }, [], {
+      requireAwaiting: false,
+    });
+    if (opened.kind !== 'created') throw new Error('expected a ticket');
+    await bot.handleUpdate(message(stranger, { text: 'One more detail' }));
+    expect(replies(telegram).at(-1)).toContain(`#${opened.number}`);
+    expect(await db.ticketMessage.count({ where: { ticketId: opened.ticketId } })).toBe(2);
+    // Admins are notified of the follow-up.
+    expect(
+      await db.delivery.count({
+        where: {
+          chatId: BigInt(admin),
+          message: { ticketId: opened.ticketId, text: 'One more detail' },
+        },
+      }),
+    ).toBe(1);
+    // Once resolved, a plain message no longer reopens it implicitly.
+    await db.ticket.update({ where: { id: opened.ticketId }, data: { status: 'resolved' } });
+    await bot.handleUpdate(message(stranger, { text: 'Unrelated' }));
+    expect(replies(telegram).at(-1)).toContain('/feedback');
+    expect(await db.ticketMessage.count({ where: { ticketId: opened.ticketId } })).toBe(2);
   });
 
   it('bans by ticket number and silently ignores the banned user', async () => {

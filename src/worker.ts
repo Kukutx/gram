@@ -16,6 +16,7 @@ import {
 } from './maintenance/retention.ts';
 import { createLogger, type Logger } from './observability/logger.ts';
 import { initMonitoring, reportError } from './observability/errors.ts';
+import { createAlerter, telegramSender, workerProblems } from './observability/alerts.ts';
 import { heartbeat, operationsHealth } from './observability/operations.ts';
 import { scheduleTask, withDeadline } from './runtime/tasks.ts';
 import { createServer } from './server.ts';
@@ -25,7 +26,14 @@ export type WorkerOptions = {
   api?: Api;
   /** Disable LISTEN/NOTIFY (tests, or poolers without session support). */
   listen?: boolean;
+  /** Exit when the send loop has stalled, so the container restarts (production only). */
+  exitOnStall?: boolean;
 };
+
+/** A send loop silent this long is stuck (a cycle normally ends within seconds). */
+export const DISPATCH_STALL_MS = 5 * 60_000;
+/** Problems seen during start-up (old heartbeats, a backlog being drained) are not alerts yet. */
+const ALERT_GRACE_MS = 120_000;
 
 /**
  * The worker owns everything that must happen without a Telegram update:
@@ -111,19 +119,31 @@ export async function startWorker(
       ),
     );
     let lastAlert = 0;
+    let lastCycleAt = Date.now();
+    const alerter = createAlerter({
+      send: telegramSender(api),
+      chats: adminRecipients(config).map((r) => Number(r.chatId)),
+      language: config.DEFAULT_LANGUAGE,
+      onError: failed,
+    });
     tasks.push(
       scheduleTask(
         async () => {
+          if (options.exitOnStall && Date.now() - lastCycleAt > DISPATCH_STALL_MS) {
+            // Self-healing: a hung send loop cannot recover in place, but a fresh process can.
+            logger.error('Send loop stalled; exiting so the container restarts');
+            process.exitCode = 1;
+            void dispose().finally(() => process.exit(1));
+            return;
+          }
           const health = await operationsHealth(db, config);
-          if (
-            !health.healthy &&
-            Date.now() - startedAt >= 120_000 &&
-            Date.now() - lastAlert > 60 * 60_000
-          ) {
+          if (Date.now() - startedAt < ALERT_GRACE_MS) return;
+          if (!health.healthy && Date.now() - lastAlert > 60 * 60_000) {
             lastAlert = Date.now();
             logger.error({ health }, 'Operational health requires attention');
             Sentry.captureMessage('Bot operational health requires attention', 'error');
           }
+          await alerter.update(workerProblems(health));
         },
         60_000,
         failed,
@@ -139,6 +159,7 @@ export async function startWorker(
         ...(options.listen === false || !config.OUTBOX_LISTEN ? {} : { listenUrl: config.DATABASE_URL }),
         onError: failed,
         onCycle: async () => {
+          lastCycleAt = Date.now();
           if (Date.now() - lastDispatchBeat < 15_000) return;
           lastDispatchBeat = Date.now();
           await heartbeat(db, `dispatch:${instance}`, 'dispatch');
@@ -168,7 +189,7 @@ export async function startWorker(
 async function main() {
   const config = parseConfig();
   initMonitoring(config);
-  await startWorker(config, createPrisma(config), createLogger(config));
+  await startWorker(config, createPrisma(config), createLogger(config), { exitOnStall: true });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error: unknown) => {

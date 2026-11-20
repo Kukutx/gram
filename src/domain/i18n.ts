@@ -74,3 +74,19 @@ export function outboxHealthLabel(language: Language, status: string): string {
   const key = OUTBOX_HEALTH_KEYS[status as keyof typeof OUTBOX_HEALTH_KEYS];
   return key ? t(language, key) : status;
 }
+
+const TICKET_EVENT_KEYS = {
+  assign: 'eventAssign',
+  reply: 'eventReply',
+  reopened_by_user: 'eventReopenedByUser',
+  delivery_retry: 'eventDeliveryRetry',
+  delivery_pause: 'eventDeliveryPause',
+  delivery_dismiss: 'eventDeliveryDismiss',
+} as const satisfies Record<string, TranslationKey>;
+
+/** Audit events: a status change reads as the status itself; unknown (legacy) actions verbatim. */
+export function ticketEventLabel(language: Language, action: string): string {
+  if (Object.hasOwn(TICKET_STATUS_KEYS, action)) return ticketStatusLabel(language, action);
+  const key = TICKET_EVENT_KEYS[action as keyof typeof TICKET_EVENT_KEYS];
+  return key ? t(language, key) : action;
+}

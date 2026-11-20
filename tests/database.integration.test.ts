@@ -175,6 +175,18 @@ integration('ticket model on PostgreSQL', () => {
     const row = await db.delivery.findUniqueOrThrow({ where: { id: second[0]! } });
     expect(row.status).toBe('pending');
     expect(row.leaseUntil!.getTime()).toBeGreaterThan(Date.now());
+    // Flood control: Telegram's retry_after wins over a shorter backoff.
+    await db.delivery.update({ where: { id: row.id }, data: { leaseUntil: new Date(Date.now() - 1) } });
+    const flood = randomUUID();
+    expect(await claimMine(flood, mine)).toEqual([row.id]);
+    await markFailed(db, row.id, flood, {
+      code: 429,
+      permanent: false,
+      attempts: 1,
+      retryAfterMs: 120_000,
+    });
+    const waited = await db.delivery.findUniqueOrThrow({ where: { id: row.id } });
+    expect(waited.leaseUntil!.getTime()).toBeGreaterThan(Date.now() + 100_000);
     await db.delivery.update({ where: { id: row.id }, data: { leaseUntil: new Date(Date.now() - 1) } });
     const t4 = randomUUID();
     expect(await claimMine(t4, mine)).toEqual([row.id]);

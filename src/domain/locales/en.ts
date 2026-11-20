@@ -52,7 +52,7 @@ export const en: Record<keyof typeof zh, string> = {
     'Send your question or idea within 15 minutes (text up to 4000 characters, or a photo, file or voice message). Send /cancel to stop.',
   feedbackSaved: 'Received, thank you!',
   ticketCreated:
-    'Received: ticket #{number}.\nReplies from support arrive here; to add details, just reply to their message.\nTrack progress: /my_feedbacks',
+    'Received: ticket #{number}.\nReplies from support arrive here; to add details while it is open, just send them.\nTrack progress: /my_feedbacks',
   followUpSaved: 'Added to ticket #{number}.',
   feedbackExpired: 'Feedback expired. Send /feedback to start again.',
   feedbackEmpty: 'The message cannot be empty. Please send it again.',
@@ -92,6 +92,7 @@ export const en: Record<keyof typeof zh, string> = {
   btnTake: '🙋 Take',
   btnResolve: '✅ Resolved',
   btnClose: '🔒 Close',
+  btnReopen: '🔄 Reopen',
   btnPrev: '‹ Prev',
   btnNext: 'Next ›',
 
@@ -123,7 +124,10 @@ export const en: Record<keyof typeof zh, string> = {
   banned: 'User banned; their messages will be ignored.',
   unbanned: 'User unbanned.',
   userMissing: 'User not found.',
-  deliveryResult: 'Result: {result} (busy means a send is in progress; retry later).',
+  deliveryResultSaved: 'Done.',
+  deliveryResultMissing: 'No such delivery.',
+  deliveryResultAlreadySent: 'That message was already sent.',
+  deliveryResultBusy: 'That message is being sent right now; try again shortly.',
   deliveriesEmpty: 'No blocked or paused sends.',
   deliveryRow:
     '{id}\n  #{number} {direction} → {chat}: {delivery}, error {errorCode}, {attempts} attempts',
@@ -137,6 +141,21 @@ export const en: Record<keyof typeof zh, string> = {
   healthWarning: 'slow (over 10 min)',
   healthCritical: 'critical (over 1 h)',
   healthUnknown: 'unknown',
+  alertTitle: '⚠️ The bot needs attention (automatic check):',
+  alertWorker:
+    'The sending process is not responding, so notifications and replies are not going out. It restarts automatically; if this lasts over 10 minutes, re-run the deploy command.',
+  alertDispatch: 'Sending is stuck; the background process restarts itself.',
+  alertBacklog: '{pending} message(s) have waited more than {minutes} minutes to be sent.',
+  alertBlocked:
+    '{blocked} message(s) could not be delivered (for example, the user blocked the bot). Send /deliveries to review them.',
+  alertRetention: 'Expired-data cleanup is behind; check the server logs.',
+  alertRecovered: '✅ The bot is healthy again.',
+  eventAssign: 'taken',
+  eventReply: 'replied',
+  eventReopenedByUser: 'reopened by user',
+  eventDeliveryRetry: 'resend',
+  eventDeliveryPause: 'paused sending',
+  eventDeliveryDismiss: 'stopped sending',
   yes: 'ok',
   no: 'stale',
 

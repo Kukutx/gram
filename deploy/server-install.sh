@@ -4,6 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/Kukutx/gram/develop/deploy/server-install.sh | sudo bash
 #
 # Safe to re-run: it pulls the latest code and redeploys. Settings live in /opt/gram/.env.
+# It also schedules deploy/auto-update.sh, so the server keeps itself current afterwards.
 # Values in /etc/gram/env.install (written by deploy/gcp-free.sh) are merged into .env once.
 set -euo pipefail
 
@@ -15,6 +16,11 @@ INSTALL_ENV=/etc/gram/env.install
 say() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 [[ $EUID -eq 0 ]] || { echo 'Run as root (sudo).' >&2; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
+# One install or update at a time: wait for a running daily update instead of racing it.
+if [[ -z "${GRAM_LOCK_HELD:-}" ]]; then
+  exec 9>/run/gram-install.lock
+  flock -w 3600 9 || { echo 'Another install or update is still running.' >&2; exit 1; }
+fi
 
 say 'Memory: making sure swap exists (small servers need it to build)'
 if ! swapon --show --noheadings | grep -q .; then
@@ -46,6 +52,12 @@ apt_get() {
 wait_for_apt
 apt_get update -qq
 apt_get install -y -qq ca-certificates curl git openssl unattended-upgrades >/dev/null
+# Security updates install daily; when one needs a reboot (kernel), reboot early in the morning
+# (server time, usually UTC). Docker and the bot start again by themselves.
+cat > /etc/apt/apt.conf.d/52gram-auto-reboot <<'APT'
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "05:30";
+APT
 
 if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
   say 'Installing Docker'
@@ -57,8 +69,13 @@ say "Code: $GRAM_REPO ($GRAM_REF)"
 install -d -m 700 /etc/gram
 echo "$GRAM_REF" > /etc/gram/ref
 if [[ -d "$GRAM_DIR/.git" ]]; then
-  git -C "$GRAM_DIR" fetch --quiet --depth 1 origin "$GRAM_REF"
-  git -C "$GRAM_DIR" checkout --quiet --force -B deploy FETCH_HEAD
+  # The daily update passes the exact commit it fetched (GRAM_COMMIT); otherwise take the branch tip.
+  if [[ -n "${GRAM_COMMIT:-}" ]] && git -C "$GRAM_DIR" cat-file -e "$GRAM_COMMIT^{commit}" 2>/dev/null; then
+    git -C "$GRAM_DIR" checkout --quiet --force -B deploy "$GRAM_COMMIT"
+  else
+    git -C "$GRAM_DIR" fetch --quiet --depth 1 origin "$GRAM_REF"
+    git -C "$GRAM_DIR" checkout --quiet --force -B deploy FETCH_HEAD
+  fi
 else
   git clone --quiet --depth 1 --branch "$GRAM_REF" "$GRAM_REPO" "$GRAM_DIR"
 fi
@@ -89,12 +106,26 @@ if [[ -z "$(get_env BOT_TOKEN)" || "$(get_env BOT_TOKEN)" == 123456789:* ]]; the
   exit 1
 fi
 
-say 'Daily backup at 03:15 (keeps 14) and weekly cleanup of old Docker images'
+say 'Scheduled jobs: daily backup (keeps 14), daily self-update, weekly Docker cleanup'
+# The update minute is spread per server so many installs do not hit GitHub at the same moment.
+seed="$(cksum < /etc/machine-id 2>/dev/null | cut -d' ' -f1 || true)"
+update_minute=$(( ${seed:-0} % 50 ))
 cat > /etc/cron.d/gram <<CRON
 SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 15 3 * * * root cd $GRAM_DIR && bash deploy/backup.sh >> /var/log/gram-backup.log 2>&1
-40 4 * * 0 root docker image prune -af --filter until=168h >/dev/null 2>&1; docker builder prune -af --filter until=168h >/dev/null 2>&1
+$update_minute 4 * * * root bash $GRAM_DIR/deploy/auto-update.sh >> /var/log/gram-update.log 2>&1
+40 5 * * 0 root docker image prune -af --filter until=168h >/dev/null 2>&1; docker builder prune -af --filter until=168h >/dev/null 2>&1
 CRON
+cat > /etc/logrotate.d/gram <<'ROTATE'
+/var/log/gram-backup.log /var/log/gram-update.log /var/log/gram-install.log {
+  monthly
+  rotate 6
+  compress
+  missingok
+  notifempty
+}
+ROTATE
 
 say 'Building and starting (the first build on a small server takes 10-20 minutes)'
 bash deploy/up.sh
