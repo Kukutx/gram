@@ -71,6 +71,11 @@ const BUTTON_LABELS = {
   open: 'btnReopen',
 } as const;
 
+/** Whether a ticket in `status` shows the button for `action`. */
+export function offersAction(status: TicketStatus, action: StatusAction): boolean {
+  return (TICKET_BUTTONS[status] as readonly StatusAction[] | undefined)?.includes(action) ?? false;
+}
+
 /**
  * Buttons on admin notifications, handled by the bot's support feature. They offer only
  * the next sensible steps for the ticket's status; a press refreshes them.

@@ -9,6 +9,7 @@ import {
 } from '../../db/tickets.ts';
 import { extractContent, validateContent } from '../../domain/content.ts';
 import type { BotContext, BotDeps } from '../context.ts';
+import { offersAction } from '../../delivery/sender.ts';
 import { statusNotice } from '../recipients.ts';
 import {
   TELEGRAM_CAPTION_MAX_UNITS,
@@ -36,7 +37,16 @@ export function supportFeature({ config, db }: BotDeps): Composer<BotContext> {
     if (!ctx.isAdmin) return ctx.answerCallbackQuery({ text: ctx.t('forbidden') });
     const where = { number: Number(ctx.match[1]) };
     const action = ctx.match[2] as StatusAction;
-    const result = await changeTicket(db, ctx.from.id, ctx.update.update_id, where, action, notice);
+    // Act only if the ticket still shows this button: someone may have moved it on since.
+    const result = await changeTicket(
+      db,
+      ctx.from.id,
+      ctx.update.update_id,
+      where,
+      action,
+      notice,
+      (status) => offersAction(status, action),
+    );
     const { text, keyboard, ticket } = await describeChange(
       ctx,
       db,

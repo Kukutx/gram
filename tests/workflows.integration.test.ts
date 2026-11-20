@@ -356,6 +356,26 @@ suite('bot workflows on PostgreSQL with a recorded Telegram API', () => {
     await press(`tk:${n}:resolved`, { text: `🆕 New ticket #${n} (Resolved)\nFrom: ${author}` });
     expect(telegram.of('editMessageText')).toHaveLength(0);
     expect(telegram.of('editMessageReplyMarkup')).toHaveLength(1);
+
+    // A button the ticket no longer shows (an older notification) changes nothing:
+    // "resolved" pressed on a ticket closed in the meantime must not reopen it.
+    await press(`tk:${n}:closed`, { text: 'Closing it' });
+    const noticesBefore = await db.ticketMessage.count({
+      where: { ticketId: opened.ticketId, authorId: 0n },
+    });
+    await press(`tk:${n}:resolved`, { text: `🆕 New ticket #${n} (In progress)\nFrom: ${author}` });
+    expect((await db.ticket.findUniqueOrThrow({ where: { id: opened.ticketId } })).status).toBe(
+      'closed',
+    );
+    expect(telegram.last('answerCallbackQuery')?.payload.text).toBe(
+      'This request was processed or superseded. Check the current state.',
+    );
+    const refreshed = telegram.last('editMessageText')?.payload;
+    expect(refreshed?.text).toBe(`🆕 New ticket #${n} (Closed)\nFrom: ${author}`);
+    expect(JSON.stringify(refreshed?.reply_markup)).toContain(`tk:${n}:open`);
+    expect(await db.ticketMessage.count({ where: { ticketId: opened.ticketId, authorId: 0n } })).toBe(
+      noticesBefore,
+    );
   });
 
   it('continues a ticket in progress from a plain message, and offers to send anything else', async () => {

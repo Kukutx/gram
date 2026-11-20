@@ -308,7 +308,9 @@ async function insertStaffMessage(
 
 /**
  * Changes status or assignment, once per Telegram update (receipt-backed), with an
- * audit event and, when configured, a localized notice to the ticket owner.
+ * audit event and, when configured, a localized notice to the ticket owner. With
+ * `onlyFrom`, a ticket whose current status it rejects is left alone and the result is
+ * 'stale': a button pressed on an outdated message must not undo a later change.
  */
 export async function changeTicket(
   db: Database,
@@ -317,6 +319,7 @@ export async function changeTicket(
   ref: string | Prisma.TicketWhereUniqueInput,
   action: StatusAction,
   notice?: StatusNotice,
+  onlyFrom?: (status: TicketStatus) => boolean,
 ): Promise<'saved' | 'missing' | 'unchanged' | 'stale'> {
   const where = typeof ref === 'string' ? ticketWhere(ref) : ref;
   if (!where) return 'missing';
@@ -332,6 +335,7 @@ export async function changeTicket(
       },
     });
     if (!ticket) return 'missing';
+    if (onlyFrom && !onlyFrom(ticket.status)) return 'stale';
     const status: TicketStatus =
       action === 'assign' ? (ticket.status === 'open' ? 'in_progress' : ticket.status) : action;
     if (action !== 'assign' && ticket.status === status) return 'unchanged';
