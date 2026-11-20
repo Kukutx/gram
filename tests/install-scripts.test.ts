@@ -51,6 +51,9 @@ suite('one-command install scripts', () => {
     expect(script).toContain('MEMORY_GB="${GRAM_MEMORY_GB:-12}"');
     expect(script).toContain('--boot-volume-size-in-gbs 50');
     expect(script).toContain('export OCI_CLI_REGION="$HOME_REGION"');
+    // Cloud Shell runs in FIPS mode: ed25519 keys are refused there.
+    expect(script).toContain('ssh-keygen -q -t rsa -b 4096');
+    expect(script).not.toMatch(/-t ed25519/);
   });
 
   it('copies backups off the server through a write-only link only', () => {

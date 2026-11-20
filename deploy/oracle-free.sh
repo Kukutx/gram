@@ -109,7 +109,9 @@ fi
 
 # ── 4. Always Free server ──────────────────────────────────────────────────────
 say '4/6 免费服务器'
-[[ -f "$KEY" ]] || { mkdir -p "$HOME/.ssh" && ssh-keygen -q -t ed25519 -N '' -C gram -f "$KEY"; }
+# Oracle Cloud Shell runs in FIPS mode, which rejects ed25519 keys; RSA works everywhere.
+[[ -f "$KEY" && -f "$KEY.pub" ]] || { mkdir -p "$HOME/.ssh" && rm -f "$KEY" "$KEY.pub" &&
+  ssh-keygen -q -t rsa -b 4096 -N '' -C gram -f "$KEY"; }
 latest_ubuntu() { # latest_ubuntu SHAPE: newest Ubuntu 24.04 image for that shape (Arm or x86)
   oci compute image list -c "$TENANCY" --operating-system 'Canonical Ubuntu' --operating-system-version 24.04 \
     --shape "$1" --sort-by TIMECREATED --sort-order DESC --all 2>/dev/null |
