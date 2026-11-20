@@ -17,7 +17,17 @@ export function initMonitoring(config: AppConfig): void {
   if (!config.SENTRY_DSN) return;
   Sentry.init({
     dsn: config.SENTRY_DSN,
-    sendDefaultPii: false,
+    // Collect nothing beyond the error itself; beforeSend strips even that down to its type.
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: false,
+      httpBodies: [],
+      urlQueryParams: false,
+      databaseQueryData: false,
+      queues: false,
+      stackFrameVariables: false,
+    },
     beforeSend: sanitizeMonitoringEvent,
   });
 }

@@ -40,7 +40,7 @@ GRAM_OCPUS=1 GRAM_MEMORY_GB=6 bash <(curl -fsSL https://raw.githubusercontent.co
 - 真机测试的办法：经主人同意，用 computer use 操作主人电脑上的 Telegram Desktop。管理员就是主人自己的账号，所以给自己的工单回复要用 `/reply <编号> <内容>`（直接回复通知会被当成用户追问）。
 - 系统自动发的状态通知存成 `authorId = 0` 的消息（`SYSTEM_AUTHOR`），统计和列表里不算对话。
 
-## 可以继续改进的地方（都不紧急）
+## 依赖和后续
 
-- 几个旧的 Dependabot PR 已经过时，可以关掉，或者等 Dependabot 重新生成。
+- Node 保持在 24 LTS（Docker 镜像和 `@types/node` 一起）；Dependabot 已设置为不自动提 Node 大版本，要升级时两处一起改并完整测试。小版本更新会合并成一个 PR。
 - 计划搬进 "Viper" 单仓库；本仓库目前是备份。
