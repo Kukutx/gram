@@ -13,10 +13,39 @@ Redis 可选，只在多个 Bot 实例需要共享限流时使用。
 
 ## 选哪种方式
 
-- **最省事、免费：Google Cloud 免费服务器**：在 Cloud Shell 里粘贴一条命令，脚本自动创建服务器、安装、启动，见下面的 [GCP 免费服务器一键部署](#gcp-免费服务器一键部署)。
+- **完全免费：Oracle Cloud 永久免费服务器**：在 Oracle Cloud Shell 里粘贴一条命令，见 [Oracle 永久免费服务器一键部署](#oracle-永久免费服务器一键部署)。
+- **Google Cloud 免费服务器**：同样一条命令，但公网 IPv4 单独计费（试用赠金期后约 3.6 美元/月），见 [GCP 免费服务器一键部署](#gcp-免费服务器一键部署)。
 - **一台服务器（VPS、家里的机器、云主机）**：用下面的 Docker Compose，一条命令完成。默认 polling 模式，不需要域名、不开放端口。
 - **Google Cloud（Cloud Run + Cloud SQL）**：见 [GCP_DEPLOY.md](GCP_DEPLOY.md)，带 GitHub Actions 审批发布。
 - **其他平台（Railway、Fly.io、Render、Kubernetes 等）**：用同一个 Dockerfile。镜像 target `runtime` 跑 Bot（`node dist/index.js`）和 Worker（`node dist/worker.js`），target `migrations` 跑迁移；环境变量见 [.env.example](../.env.example)。平台的连接池如果是事务模式（PgBouncer、Supabase pooler），设 `OUTBOX_LISTEN=false`。
+
+## Oracle 永久免费服务器一键部署
+
+Oracle Cloud 的 Always Free 资源不限期免费，公网 IP 不另收费。脚本默认在你的主区域（Home Region）创建一台 Ampere A1（Arm，2 核、12 GB 内存、50 GB 磁盘，即全部 A1 免费额度）；Arm 暂时没有空闲时，自动改用 1 GB 的 AMD 免费机器。Bot、Worker 和 PostgreSQL 都跑在这一台机器上。
+
+你需要做的：
+
+1. 在 Telegram 里找 [@BotFather](https://t.me/BotFather)，发 `/newbot` 创建机器人，复制它给的 Token。
+2. 在 [signup.cloud.oracle.com](https://signup.cloud.oracle.com) 注册（需要绑卡验证，不扣费）。主区域选离你近的，注册后不能改。
+3. 登录 Oracle Cloud 控制台，点右上角的 `>_` 图标打开 Cloud Shell，粘贴并回车：
+
+   ```bash
+   bash <(curl -fsSL https://raw.githubusercontent.com/Kukutx/gram/develop/deploy/oracle-free.sh)
+   ```
+
+4. 按提示粘贴 Token；看到提示后在 Telegram 里给你的机器人发 `/start`。
+5. 等脚本跑完（首次 10–20 分钟），给机器人发 `/start` 和 `/help` 试一下。
+
+脚本 [`deploy/oracle-free.sh`](../deploy/oracle-free.sh) 做的事：找到主区域；创建网络 `gram-vcn`（只允许 SSH 进入，出站不限）；校验 Token、读取你的 Telegram ID；在各个可用域依次尝试创建机器（`gram-bot`，Ubuntu 24.04）；SSH 钥匙保存在 Cloud Shell 的 `~/.ssh/gram_oci`；然后和 GCP 一样运行 [`deploy/server-install.sh`](../deploy/server-install.sh)，安装在服务器上以 systemd 任务运行，断线不影响；最后建一个 1 元预算，有任何费用就发邮件。
+
+**再次运行同一条命令**就是更新，Token 处直接回车表示沿用原来的设置。可选环境变量：`OCI_TENANCY`、`GRAM_VM`、`GRAM_REF`、`GRAM_OCPUS`、`GRAM_MEMORY_GB`、`BOT_TOKEN`、`ADMIN_IDS`。
+
+需要注意：
+
+- **没有空闲机器**：Oracle 热门区域常提示 "Out of host capacity"。过一两个小时再运行同一条命令即可。
+- **闲置回收**：Oracle 可能回收 7 天内 CPU、网络、内存使用率都低于 20% 的免费机器，客服机器人通常就是这种状态。部署成功后建议在控制台把账号升级为 Pay As You Go（按量付费）：Always Free 资源升级后照样免费，而且据大量用户反馈不再被闲置回收（Oracle 文档没有明说）；脚本建的预算提醒会在出现任何费用时通知你。
+- **钥匙**：SSH 钥匙只在主区域的 Cloud Shell 里保存。Cloud Shell 半年不用会被清空，到时在控制台删除 `gram-bot` 再运行脚本即可（数据库会一起删除，先用 `deploy/backup.sh` 备份）。
+- 2026 年 6 月起 A1 免费额度为 2 核、12 GB；`GRAM_OCPUS` / `GRAM_MEMORY_GB` 调大会超出免费额度。
 
 ## GCP 免费服务器一键部署
 

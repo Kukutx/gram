@@ -6,19 +6,25 @@ const suite = process.platform === 'win32' ? describe.skip : describe;
 const read = (name: string) => readFileSync(new URL(`../deploy/${name}`, import.meta.url), 'utf8');
 
 suite('one-command install scripts', () => {
-  it.each(['gcp-free.sh', 'server-install.sh', 'up.sh', 'backup.sh'])('%s is valid bash', (name) => {
-    const result = spawnSync('bash', ['-n', new URL(`../deploy/${name}`, import.meta.url).pathname]);
-    expect(result.stderr.toString()).toBe('');
-    expect(result.status).toBe(0);
-  });
+  it.each(['gcp-free.sh', 'oracle-free.sh', 'server-install.sh', 'up.sh', 'backup.sh'])(
+    '%s is valid bash',
+    (name) => {
+      const result = spawnSync('bash', ['-n', new URL(`../deploy/${name}`, import.meta.url).pathname]);
+      expect(result.stderr.toString()).toBe('');
+      expect(result.status).toBe(0);
+    },
+  );
 
-  it('sends the bot token over stdin, never on a command line', () => {
-    const script = read('gcp-free.sh');
-    const sshCommands = script.split('\n').filter((line) => line.includes('ssh_vm '));
-    expect(sshCommands.length).toBeGreaterThan(0);
-    for (const line of sshCommands) expect(line).not.toContain('TOKEN');
-    expect(script).toContain('tee /etc/gram/env.install');
-  });
+  it.each(['gcp-free.sh', 'oracle-free.sh'])(
+    '%s sends the bot token over stdin, never on a command line',
+    (name) => {
+      const script = read(name);
+      const sshCommands = script.split('\n').filter((line) => line.includes('ssh_vm '));
+      expect(sshCommands.length).toBeGreaterThan(0);
+      for (const line of sshCommands) expect(line).not.toContain('TOKEN');
+      expect(script).toContain('tee /etc/gram/env.install');
+    },
+  );
 
   it('stays inside the GCP free tier', () => {
     const script = read('gcp-free.sh');
@@ -35,5 +41,15 @@ suite('one-command install scripts', () => {
     expect(script).toMatch(/\[\[ -s \.env \]\] \|\| cp \.env\.example \.env/);
     expect(script).toMatch(/get_env POSTGRES_PASSWORD\)" \]\] \|\| set_env POSTGRES_PASSWORD/);
     expect(script).toContain('rm -f "$INSTALL_ENV"');
+  });
+
+  it('only asks Oracle for Always Free shapes within the free allowance', () => {
+    const script = read('oracle-free.sh');
+    const shapes = [...script.matchAll(/launch (VM\.[\w.]+)/g)].map((m) => m[1]);
+    expect(shapes).toEqual(['VM.Standard.A1.Flex', 'VM.Standard.E2.1.Micro']);
+    expect(script).toContain('OCPUS="${GRAM_OCPUS:-2}"');
+    expect(script).toContain('MEMORY_GB="${GRAM_MEMORY_GB:-12}"');
+    expect(script).toContain('--boot-volume-size-in-gbs 50');
+    expect(script).toContain('export OCI_CLI_REGION="$HOME_REGION"');
   });
 });

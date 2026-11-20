@@ -58,7 +58,8 @@ TEST_DATABASE_URL=postgresql://.../grammy_test pnpm test:integration
 
 生产环境运行 Bot 和 Worker 两个进程，迁移单独执行。Worker 负责发送所有消息，必须一直运行。
 
-- **免费云服务器（最省事）**：打开 [Cloud Shell](https://shell.cloud.google.com) 运行 `bash <(curl -fsSL https://raw.githubusercontent.com/Kukutx/gram/develop/deploy/gcp-free.sh)`，按提示粘贴 Token 即可，见 [GCP 免费服务器一键部署](docs/DEPLOY.md#gcp-免费服务器一键部署)。
+- **完全免费的云服务器**：在 Oracle Cloud Shell 运行 `bash <(curl -fsSL https://raw.githubusercontent.com/Kukutx/gram/develop/deploy/oracle-free.sh)`，见 [Oracle 永久免费服务器一键部署](docs/DEPLOY.md#oracle-永久免费服务器一键部署)。
+- **Google Cloud 免费服务器**（公网 IP 约 3.6 美元/月）：打开 [Cloud Shell](https://shell.cloud.google.com) 运行 `bash <(curl -fsSL https://raw.githubusercontent.com/Kukutx/gram/develop/deploy/gcp-free.sh)`，按提示粘贴 Token 即可，见 [GCP 免费服务器一键部署](docs/DEPLOY.md#gcp-免费服务器一键部署)。
 - **任意一台服务器**：填好 `.env` 后运行 `bash deploy/up.sh`。这一步会完成构建、迁移、启动和自检，默认 polling 模式，不需要域名。详见 [部署指南](docs/DEPLOY.md)，其中包括 webhook + 自动 HTTPS、备份恢复、从 v1.5 升级和上线检查清单。
 - **Google Cloud**：Cloud Run + Cloud SQL，支持 GitHub Actions 审批发布，见 [GCP_DEPLOY.md](docs/GCP_DEPLOY.md)。
 - **其他平台**：使用同一个 Dockerfile，见 [部署指南](docs/DEPLOY.md#选哪种方式)。
