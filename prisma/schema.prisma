@@ -9,48 +9,128 @@ datasource db {
   provider = "postgresql"
 }
 
+/// Telegram account that contacted the bot. Erasing it cascades to everything below.
 model TelegramUser {
-  id                String     @id @default(cuid())
-  telegramId        BigInt     @unique
-  username          String?    @db.VarChar(32)
-  firstName         String?    @db.VarChar(200)
-  language          String     @default("zh") @db.VarChar(2)
-  awaitingFeedback  Boolean    @default(false)
+  id                String    @id @default(cuid())
+  telegramId        BigInt    @unique
+  username          String?   @db.VarChar(32)
+  firstName         String?   @db.VarChar(200)
+  language          String    @default("zh") @db.VarChar(8)
+  /// `/feedback` was sent and the next message opens a new ticket until this time.
+  awaitingFeedback  Boolean   @default(false)
   feedbackExpiresAt DateTime?
   lastStateUpdateId Int?
   lastStateUpdateAt DateTime?
-  deleteNonce       String?    @db.VarChar(16)
+  deleteNonce       String?   @db.VarChar(16)
   deleteExpiresAt   DateTime?
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
-  lastSeenAt        DateTime   @default(now())
-  feedback          Feedback[]
+  bannedAt          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastSeenAt        DateTime  @default(now())
+  tickets           Ticket[]
 }
 
-model Feedback {
-  id                    String          @id @default(cuid())
-  userId                String
-  user                  TelegramUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sourceUpdateId        Int             @unique
-  text                  String          @db.VarChar(2000)
-  notifiedAt            DateTime?
-  deliveryLeaseToken    String?         @db.VarChar(36)
-  deliveryLeaseUntil    DateTime?
-  deliveryAttempts      Int             @default(0)
-  deliveryStatus        String          @default("pending") @db.VarChar(16)
-  lastDeliveryErrorCode Int?
-  lastDeliveryErrorAt   DateTime?
-  status                String          @default("open") @db.VarChar(16)
-  assignedTo            BigInt?
-  resolvedAt            DateTime?
-  replies               FeedbackReply[]
-  events                FeedbackEvent[]
-  createdAt             DateTime        @default(now())
+enum TicketStatus {
+  open
+  in_progress
+  resolved
+  closed
+}
+
+/// A conversation between one user and the support team.
+model Ticket {
+  id            String          @id @default(cuid())
+  /// Short human-facing number, shown as #123.
+  number        Int             @unique @default(autoincrement())
+  userId        String
+  user          TelegramUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        TicketStatus    @default(open)
+  assignedTo    BigInt?
+  /// Forum topic in the admin group, created lazily by the worker.
+  adminThreadId Int?
+  resolvedAt    DateTime?
+  lastMessageAt DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  messages      TicketMessage[]
+  events        TicketEvent[]
 
   @@index([userId, createdAt])
-  @@index([createdAt])
-  @@index([notifiedAt, createdAt, id])
-  @@index([deliveryStatus, notifiedAt, createdAt, id])
+  @@index([status, lastMessageAt])
+  @@index([lastMessageAt])
+}
+
+enum MessageDirection {
+  /// From the user to the support team.
+  inbound
+  /// From the support team (or the system) to the user.
+  outbound
+}
+
+model TicketMessage {
+  id             String           @id @default(cuid())
+  ticketId       String
+  ticket         Ticket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  direction      MessageDirection
+  /// Telegram user ID of the author; 0 for system notices.
+  authorId       BigInt
+  /// Telegram update that created this message: idempotency key for webhook retries.
+  sourceUpdateId Int?             @unique
+  text           String?          @db.VarChar(4096)
+  /// photo, document, video, audio, voice, animation, sticker or video_note.
+  attachmentType String?          @db.VarChar(16)
+  /// Bot-scoped Telegram file_id; the file itself is never downloaded or stored.
+  attachmentId   String?          @db.VarChar(256)
+  createdAt      DateTime         @default(now())
+  deliveries     Delivery[]
+
+  @@index([ticketId, createdAt, id])
+}
+
+enum DeliveryStatus {
+  pending
+  sent
+  blocked
+  paused
+  dismissed
+}
+
+/// Transactional outbox: one row per (message, recipient chat). The worker sends them.
+model Delivery {
+  id                  String         @id @default(cuid())
+  messageId           String
+  message             TicketMessage  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  chatId              BigInt
+  threadId            Int?
+  status              DeliveryStatus @default(pending)
+  attempts            Int            @default(0)
+  leaseToken          String?        @db.VarChar(36)
+  /// Lease expiry while sending; next allowed attempt after a temporary failure.
+  leaseUntil          DateTime?
+  lastErrorCode       Int?
+  lastErrorAt         DateTime?
+  sentAt              DateTime?
+  /// Telegram message IDs in the recipient chat, used to route replies back to the ticket.
+  sentMessageId       Int?
+  sentHeaderMessageId Int?
+  createdAt           DateTime       @default(now())
+
+  @@unique([messageId, chatId])
+  @@index([status, chatId, createdAt])
+  @@index([chatId, sentMessageId])
+  @@index([chatId, sentHeaderMessageId])
+}
+
+model TicketEvent {
+  id             String   @id @default(cuid())
+  ticketId       String
+  ticket         Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  action         String   @db.VarChar(32)
+  actorId        BigInt
+  sourceUpdateId Int?     @unique
+  createdAt      DateTime @default(now())
+
+  @@index([ticketId, createdAt])
 }
 
 model CommandReceipt {
@@ -67,35 +147,4 @@ model RuntimeHeartbeat {
   lastSeenAt DateTime @default(now())
 
   @@index([kind, lastSeenAt])
-}
-
-model FeedbackReply {
-  id                    String    @id @default(cuid())
-  feedbackId            String
-  feedback              Feedback  @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-  sourceUpdateId        Int       @unique
-  text                  String    @db.VarChar(2000)
-  notifiedAt            DateTime?
-  deliveryLeaseToken    String?   @db.VarChar(36)
-  deliveryLeaseUntil    DateTime?
-  deliveryAttempts      Int       @default(0)
-  deliveryStatus        String    @default("pending") @db.VarChar(16)
-  lastDeliveryErrorCode Int?
-  lastDeliveryErrorAt   DateTime?
-  createdAt             DateTime  @default(now())
-
-  @@index([feedbackId, createdAt, id])
-  @@index([deliveryStatus, notifiedAt, createdAt, id])
-}
-
-model FeedbackEvent {
-  id             String   @id @default(cuid())
-  feedbackId     String
-  feedback       Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-  action         String   @db.VarChar(32)
-  actorId        BigInt
-  sourceUpdateId Int      @unique
-  createdAt      DateTime @default(now())
-
-  @@index([feedbackId, createdAt])
 }

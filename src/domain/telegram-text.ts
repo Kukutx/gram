@@ -1,5 +1,3 @@
-import { t, type Language } from './i18n.ts';
-
 /**
  * Telegram sendMessage accepts at most 4096 text characters. Counting UTF-16
  * code units is conservative for emoji/surrogate pairs and prevents a message
@@ -27,13 +25,4 @@ export function withHeader(header: string, content: string): string {
   const remaining = TELEGRAM_TEXT_MAX_UNITS - header.length;
   if (remaining < 1) throw new RangeError('Notification header exceeds Telegram limit');
   return header + truncateTelegramText(content, remaining);
-}
-
-export function buildFeedbackNotification(
-  author: string,
-  feedbackId: string,
-  content: string,
-  language: Language = 'zh',
-): string {
-  return withHeader(t(language, 'notifyNewFeedback', { author, id: feedbackId }), content);
 }

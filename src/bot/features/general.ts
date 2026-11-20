@@ -1,6 +1,6 @@
 import { Composer } from 'grammy';
 import { Menu } from '@grammyjs/menu';
-import { setLanguage } from '../../db/repository.ts';
+import { setLanguage } from '../../db/users.ts';
 import { LANGUAGES, LANGUAGE_LABELS, t } from '../../domain/i18n.ts';
 import { helpText } from '../commands.ts';
 import { isPrivateChat, type BotContext, type BotDeps } from '../context.ts';
@@ -20,7 +20,9 @@ export function generalFeature({ config, db }: BotDeps): Composer<BotContext> {
   });
   composer.use(languageMenu);
 
-  composer.command('start', (ctx) => ctx.reply(ctx.t('welcome')));
+  composer.command('start', (ctx) =>
+    ctx.reply(ctx.t(config.INTAKE_MODE === 'direct' ? 'welcomeDirect' : 'welcome')),
+  );
   composer.command('help', (ctx) => ctx.reply(helpText(ctx.lang, ctx.isAdmin)));
   composer.command('ping', (ctx) => ctx.reply(ctx.t('ping')));
   composer.command('id', (ctx) =>

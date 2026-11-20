@@ -3,18 +3,19 @@ import { autoRetry } from '@grammyjs/auto-retry';
 import { reportError } from '../observability/errors.ts';
 import type { BotContext, BotDeps } from './context.ts';
 import { adminFeature } from './features/admin.ts';
-import { feedbackFeature } from './features/feedback.ts';
 import { generalFeature } from './features/general.ts';
+import { intakeFeature } from './features/intake.ts';
 import { privacyFeature } from './features/privacy.ts';
-import { baseContext, observe, rateLimit, userContext } from './middleware.ts';
+import { supportFeature } from './features/support.ts';
+import { banFilter, baseContext, observe, rateLimit, userContext } from './middleware.ts';
 
 export type { BotContext, BotDeps } from './context.ts';
 
 /**
  * Builds the single grammY Bot for the process. Middleware order matters:
  * metrics → cheap context → rate limit (before any DB access) → user/receipt
- * loading → features. The feedback feature goes last because it owns the
- * catch-all text handler.
+ * loading → ban filter → features. Staff conversation (support) runs before user
+ * intake, and intake goes last because it owns the private-chat catch-all.
  */
 export function createBot(deps: BotDeps): Bot<BotContext> {
   const { config, logger } = deps;
@@ -22,10 +23,18 @@ export function createBot(deps: BotDeps): Bot<BotContext> {
     // Long polling holds getUpdates open; webhook-mode API calls should fail fast.
     client: { timeoutSeconds: config.BOT_MODE === 'polling' ? 60 : 8 },
   });
-  bot.api.config.use(autoRetry({ maxRetryAttempts: 2, maxDelaySeconds: 5 }));
+  // Network errors are rethrown: auto-retry would otherwise retry them without limit and
+  // hold the update (webhook mode turns the failure into a Telegram redelivery instead).
+  bot.api.config.use(autoRetry({ maxRetryAttempts: 2, maxDelaySeconds: 5, rethrowHttpErrors: true }));
 
-  bot.use(observe(deps), baseContext(deps), rateLimit(deps), userContext(deps));
-  bot.use(generalFeature(deps), privacyFeature(deps), adminFeature(deps), feedbackFeature(deps));
+  bot.use(observe(deps), baseContext(deps), rateLimit(deps), userContext(deps), banFilter());
+  bot.use(
+    generalFeature(deps),
+    privacyFeature(deps),
+    adminFeature(deps),
+    supportFeature(deps),
+    intakeFeature(deps),
+  );
 
   /**
    * Only long polling reaches this handler (webhook mode surfaces errors as HTTP 5xx so

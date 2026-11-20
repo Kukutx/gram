@@ -1,7 +1,7 @@
-/** Bounded, resumable personal-data export; no additional bot framework or external storage. */
+/** Bounded, resumable personal-data export; no external storage or extra copies. */
 import type { Database } from '../db/client.ts';
 
-export const EXPORT_PAGE_SIZE = 50;
+export const EXPORT_PAGE_SIZE = 100;
 export const EXPORT_CURSOR_LIMIT = 256;
 export type ExportCursor = { createdAt: Date; id: string };
 
@@ -33,18 +33,22 @@ export function decodeExportCursor(raw: string | undefined): ExportCursor | unde
   }
 }
 
-export function exportFeedbackWhere(userId: string, cursor?: ExportCursor) {
+/** Keyset condition for newest-first pages: strictly older than the cursor. */
+export function beforeCursor(cursor?: ExportCursor) {
   return cursor
     ? {
-        userId,
         OR: [
           { createdAt: { lt: cursor.createdAt } },
           { createdAt: cursor.createdAt, id: { lt: cursor.id } },
         ],
       }
-    : { userId };
+    : {};
 }
 
+/**
+ * One page of the user's data: profile and ticket list on every page (both small),
+ * plus up to EXPORT_PAGE_SIZE messages in both directions, newest first.
+ */
 export async function getPersonalDataExportPage(
   db: Database,
   telegramId: number,
@@ -64,22 +68,35 @@ export async function getPersonalDataExportPage(
     },
   });
   if (!user) return null;
-  const result = await db.feedback.findMany({
-    where: exportFeedbackWhere(user.id, cursor),
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: EXPORT_PAGE_SIZE + 1,
-    select: { id: true, text: true, createdAt: true, notifiedAt: true, status: true, resolvedAt: true },
-  });
-  const feedback = result.slice(0, EXPORT_PAGE_SIZE);
-  const last = feedback[feedback.length - 1];
-  const nextCursor =
-    result.length > EXPORT_PAGE_SIZE && last
-      ? encodeExportCursor({ createdAt: last.createdAt, id: last.id })
-      : null;
+  const [tickets, rows] = await Promise.all([
+    db.ticket.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      take: 1_000,
+      select: { number: true, status: true, createdAt: true, resolvedAt: true, lastMessageAt: true },
+    }),
+    db.ticketMessage.findMany({
+      where: { ticket: { userId: user.id }, ...beforeCursor(cursor) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: EXPORT_PAGE_SIZE + 1,
+      select: {
+        id: true,
+        direction: true,
+        text: true,
+        attachmentType: true,
+        createdAt: true,
+        ticket: { select: { number: true } },
+        deliveries: { where: { chatId: user.telegramId }, select: { status: true, sentAt: true } },
+      },
+    }),
+  ]);
+  const messages = rows.slice(0, EXPORT_PAGE_SIZE);
+  const last = messages.at(-1);
+  const nextCursor = rows.length > EXPORT_PAGE_SIZE && last ? encodeExportCursor(last) : null;
   const payload = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     exportedAt: new Date().toISOString(),
-    pagination: { count: feedback.length, hasMore: nextCursor !== null, nextCursor },
+    pagination: { count: messages.length, hasMore: nextCursor !== null, nextCursor },
     user: {
       telegramId: String(user.telegramId),
       username: user.username,
@@ -89,60 +106,20 @@ export async function getPersonalDataExportPage(
       updatedAt: user.updatedAt,
       lastSeenAt: user.lastSeenAt,
     },
-    feedback,
+    tickets,
+    messages: messages.map((m) => ({
+      id: m.id,
+      ticket: m.ticket.number,
+      direction: m.direction,
+      text: m.text,
+      attachmentType: m.attachmentType,
+      createdAt: m.createdAt,
+      deliveredToYou: m.direction === 'outbound' ? (m.deliveries[0]?.sentAt ?? null) : undefined,
+    })),
   };
   return {
     fileContents: Buffer.from(JSON.stringify(payload, null, 2), 'utf8'),
     nextCursor,
-    count: feedback.length,
-  };
-}
-
-/** Replies have their own bounded cursor so a busy ticket cannot make an export unbounded. */
-export async function getPersonalReplyExportPage(
-  db: Database,
-  telegramId: number,
-  cursor?: ExportCursor,
-) {
-  const rows = await db.feedbackReply.findMany({
-    where: {
-      feedback: { user: { telegramId: BigInt(telegramId) } },
-      ...(cursor
-        ? {
-            OR: [
-              { createdAt: { lt: cursor.createdAt } },
-              { createdAt: cursor.createdAt, id: { lt: cursor.id } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: EXPORT_PAGE_SIZE + 1,
-    select: {
-      id: true,
-      feedbackId: true,
-      text: true,
-      createdAt: true,
-      notifiedAt: true,
-      deliveryStatus: true,
-    },
-  });
-  const replies = rows.slice(0, EXPORT_PAGE_SIZE);
-  const last = replies.at(-1);
-  const nextCursor = rows.length > EXPORT_PAGE_SIZE && last ? encodeExportCursor(last) : null;
-  return {
-    fileContents: Buffer.from(
-      JSON.stringify(
-        {
-          schemaVersion: 2,
-          exportedAt: new Date().toISOString(),
-          replies,
-          pagination: { count: replies.length, hasMore: nextCursor !== null, nextCursor },
-        },
-        null,
-        2,
-      ),
-    ),
-    nextCursor,
+    count: messages.length,
   };
 }

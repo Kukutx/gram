@@ -14,23 +14,25 @@ export const USER_COMMANDS: readonly CommandSpec[] = [
   { command: 'privacy', description: 'cmdPrivacy' },
   { command: 'my_data', description: 'cmdMyData' },
   { command: 'export_my_data', description: 'cmdExportMyData' },
-  { command: 'export_my_replies', description: 'cmdExportMyReplies' },
   { command: 'delete_my_data', description: 'cmdDeleteMyData' },
   { command: 'id', description: 'cmdId' },
   { command: 'ping', description: 'cmdPing' },
 ];
 
 export const ADMIN_COMMANDS: readonly CommandSpec[] = [
-  { command: 'feedbacks', description: 'cmdFeedbacks' },
-  { command: 'ticket', description: 'cmdTicket', args: '<id>' },
-  { command: 'assign', description: 'cmdAssign', args: '<id>' },
-  { command: 'reply', description: 'cmdReply', args: '<id> <text>' },
-  { command: 'resolve', description: 'cmdResolve', args: '<id>' },
-  { command: 'close', description: 'cmdClose', args: '<id>' },
-  { command: 'reopen', description: 'cmdReopen', args: '<id>' },
-  { command: 'set_status', description: 'cmdSetStatus', args: '<id> <status>' },
+  { command: 'tickets', description: 'cmdTickets', args: '[open|in_progress|resolved|closed|all]' },
+  { command: 'ticket', description: 'cmdTicket', args: '<#>' },
+  { command: 'search', description: 'cmdSearch', args: '<text>' },
+  { command: 'reply', description: 'cmdReply', args: '<#> <text>' },
+  { command: 'assign', description: 'cmdAssign', args: '<#>' },
+  { command: 'resolve', description: 'cmdResolve', args: '<#>' },
+  { command: 'close', description: 'cmdClose', args: '<#>' },
+  { command: 'reopen', description: 'cmdReopen', args: '<#>' },
+  { command: 'set_status', description: 'cmdSetStatus', args: '<#> <status>' },
+  { command: 'ban', description: 'cmdBan', args: '<#|userId>' },
+  { command: 'unban', description: 'cmdUnban', args: '<#|userId>' },
   { command: 'deliveries', description: 'cmdDeliveries' },
-  { command: 'delivery', description: 'cmdDelivery', args: '<kind> <id> <action>' },
+  { command: 'delivery', description: 'cmdDelivery', args: '<id> <action>' },
   { command: 'stats', description: 'cmdStats' },
   { command: 'status', description: 'cmdStatus' },
 ];
@@ -45,5 +47,7 @@ export function helpText(language: Language, includeAdmin: boolean): string {
       .map((s) => `/${s.command}${s.args ? ` ${s.args}` : ''} — ${t(language, s.description)}`)
       .join('\n');
   const user = `${t(language, 'helpUser')}\n${lines(USER_COMMANDS)}`;
-  return includeAdmin ? `${user}\n\n${t(language, 'helpAdmin')}\n${lines(ADMIN_COMMANDS)}` : user;
+  return includeAdmin
+    ? `${user}\n\n${t(language, 'helpAdmin')}\n${lines(ADMIN_COMMANDS)}\n\n${t(language, 'helpAdminTips')}`
+    : user;
 }

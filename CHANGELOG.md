@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### 工单模型 v2（数据库迁移 `20261120000000_tickets_v2`）
+
+- 数据模型：反馈改为「工单 + 对话消息」。每个工单有短编号（#12），用户与客服可以多轮往来；所有发出的消息统一进 `Delivery` 发件箱，旧数据（反馈、回复、事件、未送达通知）在迁移中原样转换。
+- 多管理员：`ADMIN_IDS` 支持多个管理员（旧的 `ADMIN_TELEGRAM_ID` 仍可用并自动合并）。
+- 客服群：设置 `ADMIN_CHAT_ID` 后通知发到群里，群成员都能处理；`ADMIN_USE_TOPICS=true` 时每个工单一个话题，在话题里直接打字就是回复用户。
+- 不用命令也能回复：管理员直接「回复」通知消息即可发给用户；用户「回复」客服消息即补充到同一工单（已解决/已结案的工单会自动重新打开）。通知带「受理 / 已解决 / 结案」按钮。
+- 附件：支持图片、文件、视频、语音、音频、动图、贴纸和圆形视频，双向转发（只保存 Telegram 文件 ID，不下载文件）。
+- `INTAKE_MODE=direct`：用户无需 /feedback，直接发消息即可联系客服。`NOTIFY_USER_ON_STATUS` 控制是否通知用户状态变化。
+- 管理命令：`/tickets [状态|all] [页]` 分页列表、`/search`、`/ban`、`/unban`；`/ticket`、`/reply`、`/resolve` 等可用 `#编号`，在话题里或回复通知时可省略编号。用户也可用 `/ticket <编号>` 查看自己的工单。
+- 投递：去掉 BullMQ，改为 PostgreSQL 发件箱 + `LISTEN/NOTIFY` 即时唤醒；同一聊天严格按顺序，不同聊天并行（`DELIVERY_CONCURRENCY`）；临时错误按指数退避重试，永久错误（被拉黑等）停放待人工处理。Redis 只剩跨实例限流一个用途，可不配。
+- 运维：`pnpm doctor` 增加迁移、NOTIFY 触发器、客服群权限与话题检查；`pnpm outbox:status` 按状态统计发件箱；新增 `grammy_bot_delivery_outcomes_total` 指标。
+- 网络错误不再被自动重试无限挂起：机器人把失败交给 Telegram 重投，Worker 交给发件箱退避。
+- 删除离线冒烟脚本（已被单元测试覆盖），集成测试不再需要 Redis。
+
+### 稳定性与结构
+
 - 修复：long polling 模式下任一更新处理出错会让 grammY 停止轮询、进程退出；现在记录并跳过该更新。
 - 性能：每条更新只加载一次用户（与命令回执并行查询），`lastSeenAt` 每 5 分钟最多写一次；语言不再在同一更新中重复查询；`/ops/health` 与 `/metrics` 的健康查询缓存 5 秒。
 - 结构：`create-bot.ts` 拆分为中间件和 general / privacy / feedback / admin 四个功能模块；投递租约逻辑合并为一份（反馈与回复共用），时间常量集中到 `config/constants.ts`。

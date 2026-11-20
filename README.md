@@ -1,38 +1,43 @@
-# grammY Telegram Bot · v1.5.0
+# grammY Telegram 客服机器人
 
-TypeScript / Node.js 24 / grammY / Fastify / PostgreSQL / Prisma。支持用户反馈、管理员处理与回复、隐私导出和删除，以及可恢复的异步通知。
+TypeScript / Node.js 24 / grammY / Fastify / PostgreSQL / Prisma。用户在私聊里提交问题（文字或附件），客服在私聊或客服群里回复，双方可以多轮往来；所有发出的消息都经过 PostgreSQL 发件箱，可重试、可追踪。
 
-默认推荐 **PostgreSQL + 独立 Bot/Worker 进程**。Redis/BullMQ 可选。后端平台选择与 Cloudflare Workers 的适配说明见 [BACKEND_CHOICE](docs/BACKEND_CHOICE.md)。
+运行只需要 **PostgreSQL + Bot 进程 + Worker 进程**。Redis 可选，只用于多实例共享限流。
 
-## 当前交付
+## 功能
 
-- 用户：双语设置、反馈输入/取消、状态查询、资料与回复分页导出、一次性确认删除。
-- 管理员：查看反馈、受理、回复、解决、结案、重新打开、投递重试/暂停/终止及状态诊断。
-- 可靠性：数据库事务、命令回执与旧状态保护、发送租约、持久 Outbox、可选 BullMQ 加速、独立维护与有界关停。
-- 观测：正文/凭据不进入异常日志或 Sentry，受保护的运行健康与 Prometheus 指标、外部告警模板。
-- 发布：真实 pnpm 锁文件、质量门禁、3 次 SQL migration、Docker、GitHub Actions 和 GCP 发布/验证/恢复脚本。
+- 用户：`/feedback` 提交（或 `INTAKE_MODE=direct` 直接发消息），支持图片、文件、语音、视频等；「回复」客服消息即可补充；`/my_feedbacks`、`/ticket <编号>` 查看进度；中英双语；资料导出与一次性确认删除。
+- 客服：多个管理员（`ADMIN_IDS`）或一个客服群（`ADMIN_CHAT_ID`），群可开「每个工单一个话题」（`ADMIN_USE_TOPICS`）。直接回复通知或在话题里打字就是回复用户；通知带「受理 / 已解决 / 结案」按钮。
+- 管理命令：`/tickets`（分页筛选）、`/ticket`、`/search`、`/reply`、`/assign`、`/resolve`、`/close`、`/reopen`、`/set_status`、`/ban`、`/unban`、`/deliveries`、`/delivery`、`/stats`、`/status`。工单用短编号 `#12`，在话题里或回复通知时可省略。
+- 可靠性：命令回执与按用户串行化防重放；发件箱按聊天保序、跨聊天并行，`LISTEN/NOTIFY` 即时唤醒，指数退避重试，永久失败停放待人工处理。
+- 观测：日志和 Sentry 不含消息正文与凭据；`/live`、`/ready`、受保护的 `/ops/health` 与 Prometheus `/metrics`。
 
-这是可运行的单 Bot、单管理员反馈应用，不含支付或多租户系统。外部消息投递仍可能在发送成功但数据库确认失败的窗口重复。
+外部消息投递在「Telegram 已发送、数据库确认前进程崩溃」的窗口仍可能重复一次，这是 Telegram API 的限制。
 
 ## 本地运行
 
-安装 Node.js 24、pnpm 10.21.0、Docker，并从 BotFather 创建独立测试 Bot。
+安装 Node.js 24、pnpm 10.21.0、Docker，并从 BotFather 创建一个测试用 Bot。
 
 ```bash
 cp .env.example .env
-# 填写 BOT_TOKEN、DATABASE_URL；管理员功能填写 ADMIN_TELEGRAM_ID
-# 不使用 Redis 时清空 REDIS_URL
+# 填写 BOT_TOKEN、DATABASE_URL；把自己的 Telegram ID 填进 ADMIN_IDS（给机器人发 /id 可查）
 docker compose up -d postgres
-# Optional Redis accelerator: docker compose up -d redis
 pnpm install --frozen-lockfile
 pnpm db:generate
 pnpm db:deploy
 pnpm dev
-# 第二个终端：通知、保留清理和心跳均由该进程负责
+# 第二个终端：所有消息发送、保留清理和心跳都由 Worker 负责
 pnpm dev:worker
+pnpm doctor   # 自检：数据库、迁移、Telegram、客服群权限
 ```
 
-发送 `/help` 查看命令。完整受理、回复和结案用法见 [v1.5 使用及升级说明](docs/UPGRADE_1_5.md)。生产和测试必须使用不同 Bot Token；本地 polling 会删除当前 Token 的 Webhook。
+发送 `/help` 查看命令。生产和测试必须使用不同 Bot Token；本地 polling 会删除当前 Token 的 Webhook。
+
+### 使用客服群
+
+1. 建一个超级群，把机器人拉进去并设为管理员（话题模式还需开启群「话题」并给机器人「管理话题」权限）。
+2. 在群里发 `/id` 拿到群 ID（负数），填入 `ADMIN_CHAT_ID`；需要话题时设 `ADMIN_USE_TOPICS=true`。
+3. 群里所有成员都能处理工单，只拉信任的客服进群。运行 `pnpm commands:sync` 让群里显示管理命令菜单。
 
 ## 验证
 
@@ -42,17 +47,18 @@ pnpm audit --audit-level moderate
 docker build -t grammy-bot:staging .
 ```
 
-数据库/Redis 集成测试必须指向隔离资源，先迁移测试数据库，再设置 TEST_DATABASE_URL 和 TEST_REDIS_URL。`pnpm test:integration` 在缺少测试数据库配置时明确失败；普通单元测试允许跳过外部依赖测试。
+集成测试必须指向一个隔离、已迁移的测试数据库；`pnpm test:integration` 缺少配置时会直接失败。
 
 ```bash
-TEST_DATABASE_URL=postgresql://... TEST_REDIS_URL=redis://... pnpm test:integration
+DATABASE_URL=postgresql://.../grammy_test pnpm db:deploy
+TEST_DATABASE_URL=postgresql://.../grammy_test pnpm test:integration
 ```
 
-本次实际完成与外部待验收事项见 [闭环验证记录](docs/CLOSURE_1_5.md)。此前 v1.4 审查结果保留在 [原始审查报告](docs/PROJECT_AUDIT_2026-11-06.md)，其中失败结果描述的是修复前状态。
+从 v1.5 升级：先停旧 Worker，执行 `pnpm db:deploy`（迁移会把反馈、回复和未送达通知转换成工单），再启动新版本的 Bot 和 Worker。`ADMIN_TELEGRAM_ID` 仍然有效，建议改为 `ADMIN_IDS`。
 
 ## 部署和运维
 
-生产运行两个进程：HTTP Bot（BOT_MODE=webhook）及独立 Worker。迁移作为独立步骤运行。即使不用 Redis，启用通知或保留策略时也必须运行 Worker。
+生产运行两个进程：Bot（polling 或 webhook）及 Worker。迁移作为独立步骤运行。Worker 负责发送所有消息，必须一直运行。
 
 - [GCP 部署](docs/GCP_DEPLOY.md)：Cloud Run + Cloud SQL；Worker Pool 常驻。先阅读 [v1.5 变更](docs/UPGRADE_1_5.md)。
 - [运行手册](docs/OPERATIONS.md)：投递故障、外部告警、隐私请求和恢复。

@@ -1,9 +1,8 @@
 import { Composer, InlineKeyboard, InputFile } from 'grammy';
-import { getMyDataSummary } from '../../db/repository.ts';
+import { getMyDataSummary } from '../../db/users.ts';
 import {
   decodeExportCursor,
   getPersonalDataExportPage,
-  getPersonalReplyExportPage,
   type ExportCursor,
 } from '../../privacy/export.ts';
 import {
@@ -12,23 +11,24 @@ import {
   consumeDeleteConfirmation,
   issueDeleteConfirmation,
 } from '../../privacy/delete-confirm.ts';
-import { isPrivateChat, type BotContext, type BotDeps } from '../context.ts';
+import type { BotContext, BotDeps } from '../context.ts';
+
+const PRIVACY_COMMANDS = ['my_data', 'export_my_data', 'export_my_replies', 'delete_my_data'];
 
 /** Personal-data inventory, paginated export and confirmed erasure. Private chats only. */
 export function privacyFeature({ config, db, rateLimiter, logger }: BotDeps): Composer<BotContext> {
   const composer = new Composer<BotContext>();
-  const privateOnly = composer.chatType('private');
-  composer.command(['my_data', 'export_my_data', 'export_my_replies', 'delete_my_data'], (ctx, next) =>
-    isPrivateChat(ctx) ? next() : ctx.reply(ctx.t('privateOnly')),
-  );
+  const pm = composer.chatType('private');
+  composer.command(PRIVACY_COMMANDS, (ctx) => ctx.reply(ctx.t('privateOnly')));
 
-  privateOnly.command('my_data', async (ctx) => {
+  pm.command('my_data', async (ctx) => {
     const data = await getMyDataSummary(db, ctx.from.id);
     if (!data) return; // The user record can be deleted by another update.
     await ctx.reply(
       ctx.t('myData', {
         userId: ctx.from.id,
-        feedbackCount: data._count.feedback,
+        ticketCount: data.ticketCount,
+        messageCount: data.messageCount,
         createdAt: data.createdAt.toISOString(),
         lastSeenAt: data.lastSeenAt.toISOString(),
         language: data.language,
@@ -48,34 +48,23 @@ export function privacyFeature({ config, db, rateLimiter, logger }: BotDeps): Co
     }
   };
 
-  privateOnly.command('export_my_data', async (ctx) => {
+  // `export_my_replies` is the v1 name; the v2 export already contains both directions.
+  pm.command(['export_my_data', 'export_my_replies'], async (ctx) => {
     const cursor = await parseCursor(ctx, ctx.match);
     if (cursor === false) return;
     const page = await getPersonalDataExportPage(db, ctx.from.id, cursor);
     if (!page) return ctx.reply(ctx.t('exportNoData'));
-    // A page holds at most 50 entries: a small document, never an unbounded history load.
     await ctx.replyWithDocument(new InputFile(page.fileContents, 'telegram-my-data.json'));
-    if (page.nextCursor)
-      return ctx.reply(ctx.t('exportNext', { command: `/export_my_data ${page.nextCursor}` }));
-    await ctx.reply(ctx.t('exportDone'));
-    await ctx.reply(ctx.t('exportReplies'));
-  });
-
-  privateOnly.command('export_my_replies', async (ctx) => {
-    const cursor = await parseCursor(ctx, ctx.match);
-    if (cursor === false) return;
-    const page = await getPersonalReplyExportPage(db, ctx.from.id, cursor);
-    await ctx.replyWithDocument(new InputFile(page.fileContents, 'telegram-my-replies.json'));
     await ctx.reply(
       page.nextCursor
-        ? ctx.t('exportNext', { command: `/export_my_replies ${page.nextCursor}` })
+        ? ctx.t('exportNext', { command: `/export_my_data ${page.nextCursor}` })
         : ctx.t('exportDone'),
     );
   });
 
   // Deletion is destructive: require a user-bound, short-lived confirmation.
   // The Bot Token signs the callback; PostgreSQL stores and consumes its nonce across instances.
-  privateOnly.command('delete_my_data', async (ctx) => {
+  pm.command('delete_my_data', async (ctx) => {
     const confirm = await issueDeleteConfirmation(
       db,
       ctx.from.id,
@@ -105,14 +94,14 @@ export function privacyFeature({ config, db, rateLimiter, logger }: BotDeps): Co
     }
   }
 
-  privateOnly.callbackQuery(/^erase:cancel:([A-Za-z0-9_-]{16})$/, async (ctx) => {
+  pm.callbackQuery(/^erase:cancel:([A-Za-z0-9_-]{16})$/, async (ctx) => {
     await cancelDeleteConfirmation(db, ctx.from.id, ctx.match[1]!);
     await answerBestEffort(ctx);
     await dismissKeyboard(ctx);
     await ctx.reply(ctx.t('deleteCanceled'));
   });
 
-  privateOnly.callbackQuery(/^erase:v2:/, async (ctx) => {
+  pm.callbackQuery(/^erase:v2:/, async (ctx) => {
     // Database deletion happens first; acknowledging the button is best effort.
     if (!(await consumeDeleteConfirmation(db, ctx.from.id, ctx.callbackQuery.data, config.BOT_TOKEN)))
       return answerBestEffort(ctx, ctx.t('deleteInvalidConfirmation'));

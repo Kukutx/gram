@@ -1,9 +1,9 @@
 import type { Middleware } from 'grammy';
-import { getLanguage, touchUser } from '../db/repository.ts';
+import { getLanguage, touchUser } from '../db/users.ts';
 import { normalizeLanguage, translator } from '../domain/i18n.ts';
 import { processedUpdates, throttledUpdates, updateDuration } from '../observability/metrics.ts';
 import { isPrivacyCallback, isPrivacyCommand } from '../security/rate-limit.ts';
-import { adminIds, callbackData, isPrivateChat, type BotContext, type BotDeps } from './context.ts';
+import { callbackData, isPrivateChat, resolveAdmin, type BotContext, type BotDeps } from './context.ts';
 
 /** Metrics and error logging. No update contents (text, usernames) are written to logs. */
 export function observe({ logger }: BotDeps): Middleware<BotContext> {
@@ -26,9 +26,8 @@ export function observe({ logger }: BotDeps): Middleware<BotContext> {
 
 /** Cheap, DB-free defaults so every later handler can rely on ctx.lang / ctx.t / ctx.isAdmin. */
 export function baseContext({ config }: BotDeps): Middleware<BotContext> {
-  const admins = adminIds(config);
   return async (ctx, next) => {
-    ctx.isAdmin = isPrivateChat(ctx) && admins.has(ctx.from!.id);
+    Object.assign(ctx, resolveAdmin(ctx, config));
     ctx.lang = normalizeLanguage(ctx.from?.language_code, config.DEFAULT_LANGUAGE);
     ctx.t = translator(ctx.lang);
     await next();
@@ -91,6 +90,22 @@ export function userContext({ db }: BotDeps): Middleware<BotContext> {
       await ctx.reply(ctx.t('alreadyHandled'));
       return;
     }
+    await next();
+  };
+}
+
+/**
+ * Banned users are ignored silently (no reply that could be farmed for spam),
+ * except for privacy commands, which must stay available to everyone.
+ */
+export function banFilter(): Middleware<BotContext> {
+  return async (ctx, next) => {
+    if (
+      ctx.user?.bannedAt &&
+      !isPrivacyCommand(ctx.message?.text) &&
+      !isPrivacyCallback(callbackData(ctx))
+    )
+      return;
     await next();
   };
 }

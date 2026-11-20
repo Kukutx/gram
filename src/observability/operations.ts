@@ -1,8 +1,12 @@
 import type { Database } from '../db/client.ts';
-import type { AppConfig } from '../config/env.ts';
+import { hasSupportTeam, type AppConfig } from '../config/env.ts';
+import { DAY_MS, HEARTBEAT_FRESH_MS } from '../config/constants.ts';
+import { Prisma } from '../generated/prisma/client.ts';
 import { classifyOutboxHealth } from './outbox-health.ts';
 
-export async function heartbeat(db: Database, id: string, kind: string): Promise<void> {
+export type HeartbeatKind = 'worker' | 'dispatch' | 'retention';
+
+export async function heartbeat(db: Database, id: string, kind: HeartbeatKind): Promise<void> {
   await db.runtimeHeartbeat.upsert({
     where: { id },
     create: { id, kind },
@@ -10,91 +14,65 @@ export async function heartbeat(db: Database, id: string, kind: string): Promise
   });
 }
 
+type Row = {
+  pending: bigint;
+  blocked: bigint;
+  oldest_pending: Date | null;
+  oldest_activity: Date | null;
+  worker: Date | null;
+  dispatch: Date | null;
+  retention: Date | null;
+};
+
+/**
+ * One round trip for every operational signal: outbox backlog, parked deliveries,
+ * heartbeats (scoped to the current RELEASE_ID when set) and retention lag.
+ */
 export async function operationsHealth(db: Database, config: AppConfig, now = new Date()) {
-  const pendingWhere = { notifiedAt: null, deliveryStatus: 'pending' };
-  const heartbeatWhere = (kind: string) => ({
-    kind,
-    ...(config.RELEASE_ID ? { id: { startsWith: `${kind}:${config.RELEASE_ID}:` } } : {}),
-  });
-  const [
-    worker,
-    dispatch,
-    retention,
-    pending,
-    replies,
-    blocked,
-    blockedReplies,
-    oldest,
-    oldestReply,
-    expired,
-  ] = await Promise.all([
-    db.runtimeHeartbeat.findFirst({ where: heartbeatWhere('worker'), orderBy: { lastSeenAt: 'desc' } }),
-    db.runtimeHeartbeat.findFirst({
-      where: heartbeatWhere('dispatch'),
-      orderBy: { lastSeenAt: 'desc' },
-    }),
-    db.runtimeHeartbeat.findFirst({
-      where: heartbeatWhere('retention'),
-      orderBy: { lastSeenAt: 'desc' },
-    }),
-    db.feedback.count({ where: pendingWhere }),
-    db.feedbackReply.count({ where: pendingWhere }),
-    db.feedback.count({ where: { deliveryStatus: 'blocked' } }),
-    db.feedbackReply.count({ where: { deliveryStatus: 'blocked' } }),
-    db.feedback.findFirst({
-      where: pendingWhere,
-      orderBy: { createdAt: 'asc' },
-      select: { createdAt: true },
-    }),
-    db.feedbackReply.findFirst({
-      where: pendingWhere,
-      orderBy: { createdAt: 'asc' },
-      select: { createdAt: true },
-    }),
-    config.FEEDBACK_RETENTION_DAYS > 0
-      ? db.feedback.findFirst({
-          where: {
-            createdAt: { lt: new Date(now.getTime() - config.FEEDBACK_RETENTION_DAYS * 86_400_000) },
-          },
-          orderBy: { createdAt: 'asc' },
-          select: { createdAt: true },
-        })
-      : null,
-  ]);
-  const fresh = (date?: Date) => date !== undefined && now.getTime() - date.getTime() < 120_000;
-  const notificationEnabled = Boolean(config.ADMIN_TELEGRAM_ID);
-  // Command receipt expiry requires maintenance even when notifications and retention are disabled.
-  const maintenanceRequired = true;
-  const oldestAt =
-    [oldest?.createdAt, oldestReply?.createdAt]
-      .filter((d): d is Date => Boolean(d))
-      .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
-  const outbox = classifyOutboxHealth(pending + replies, oldestAt, now);
-  const overdueSeconds = expired
-    ? Math.max(
-        0,
-        Math.floor(
-          (now.getTime() - expired.createdAt.getTime()) / 1000 - config.FEEDBACK_RETENTION_DAYS * 86_400,
-        ),
-      )
-    : 0;
+  const release = (kind: HeartbeatKind) =>
+    config.RELEASE_ID ? `${kind}:${config.RELEASE_ID}:%` : `${kind}:%`;
+  const [row] = await db.$queryRaw<Row[]>(Prisma.sql`
+    SELECT
+      (SELECT count(*) FROM "Delivery" WHERE "status" = 'pending') AS pending,
+      (SELECT count(*) FROM "Delivery" WHERE "status" = 'blocked') AS blocked,
+      (SELECT min("createdAt") FROM "Delivery" WHERE "status" = 'pending') AS oldest_pending,
+      (SELECT min("lastMessageAt") FROM "Ticket") AS oldest_activity,
+      (SELECT max("lastSeenAt") FROM "RuntimeHeartbeat" WHERE "kind" = 'worker' AND "id" LIKE ${release('worker')}) AS worker,
+      (SELECT max("lastSeenAt") FROM "RuntimeHeartbeat" WHERE "kind" = 'dispatch' AND "id" LIKE ${release('dispatch')}) AS dispatch,
+      (SELECT max("lastSeenAt") FROM "RuntimeHeartbeat" WHERE "kind" = 'retention' AND "id" LIKE ${release('retention')}) AS retention`);
+  const r = row!;
+  const fresh = (date: Date | null) =>
+    date !== null && now.getTime() - date.getTime() < HEARTBEAT_FRESH_MS;
+  const pending = Number(r.pending);
+  const blocked = Number(r.blocked);
+  const outbox = classifyOutboxHealth(pending, r.oldest_pending, now);
+  const retentionDays = config.FEEDBACK_RETENTION_DAYS;
+  const retentionOverdueSeconds =
+    retentionDays > 0 && r.oldest_activity
+      ? Math.max(
+          0,
+          Math.floor((now.getTime() - r.oldest_activity.getTime() - retentionDays * DAY_MS) / 1_000),
+        )
+      : 0;
+  const deliveries = hasSupportTeam(config);
   return {
     healthy:
-      (!maintenanceRequired || fresh(worker?.lastSeenAt)) &&
-      (!notificationEnabled ||
-        (fresh(dispatch?.lastSeenAt) &&
-          blocked + blockedReplies === 0 &&
-          outbox.status !== 'critical')) &&
-      (config.FEEDBACK_RETENTION_DAYS === 0 || (fresh(retention?.lastSeenAt) && overdueSeconds < 300)),
-    workerRequired: maintenanceRequired,
-    workerFresh: fresh(worker?.lastSeenAt),
-    dispatchFresh: fresh(dispatch?.lastSeenAt),
-    retentionFresh: fresh(retention?.lastSeenAt),
+      fresh(r.worker) &&
+      fresh(r.dispatch) &&
+      blocked === 0 &&
+      outbox.status !== 'critical' &&
+      (retentionDays === 0 || (fresh(r.retention) && retentionOverdueSeconds < 300)),
+    /** Receipts, retention and the outbox all need the worker, with or without admins. */
+    workerRequired: true,
+    notificationsConfigured: deliveries,
+    workerFresh: fresh(r.worker),
+    dispatchFresh: fresh(r.dispatch),
+    retentionFresh: fresh(r.retention),
     pending,
-    pendingReplies: replies,
     blocked,
-    blockedReplies,
-    retentionOverdueSeconds: overdueSeconds,
+    retentionOverdueSeconds,
     ...outbox,
   };
 }
+
+export type OperationsHealth = Awaited<ReturnType<typeof operationsHealth>>;

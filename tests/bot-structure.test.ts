@@ -5,7 +5,7 @@ import { createBot, type BotContext } from '../src/bot/create-bot.ts';
 import { ADMIN_COMMANDS, helpText, USER_COMMANDS } from '../src/bot/commands.ts';
 import { parseConfig } from '../src/config/env.ts';
 import type { Database } from '../src/db/client.ts';
-import { touchUser } from '../src/db/repository.ts';
+import { touchUser } from '../src/db/users.ts';
 import { en } from '../src/domain/locales/en.ts';
 import { zh } from '../src/domain/locales/zh.ts';
 import { createLogger } from '../src/observability/logger.ts';
@@ -60,6 +60,7 @@ describe('per-update user loading', () => {
     language: 'en',
     awaitingFeedback: false,
     feedbackExpiresAt: null,
+    bannedAt: null,
     lastSeenAt,
   });
   const fakeDb = (existing: ReturnType<typeof snapshot> | null) => {

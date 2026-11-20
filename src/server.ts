@@ -86,8 +86,8 @@ export function createServer({ config, db, bot, logger }: ServerDeps) {
         operationalMetrics.set({ metric: 'worker_fresh' }, Number(result.workerFresh));
         operationalMetrics.set({ metric: 'dispatch_fresh' }, Number(result.dispatchFresh));
         operationalMetrics.set({ metric: 'retention_fresh' }, Number(result.retentionFresh));
-        operationalMetrics.set({ metric: 'pending' }, result.pending + result.pendingReplies);
-        operationalMetrics.set({ metric: 'blocked' }, result.blocked + result.blockedReplies);
+        operationalMetrics.set({ metric: 'pending' }, result.pending);
+        operationalMetrics.set({ metric: 'blocked' }, result.blocked);
         operationalMetrics.set(
           { metric: 'oldest_pending_seconds' },
           result.oldestPendingAgeSeconds ?? 0,

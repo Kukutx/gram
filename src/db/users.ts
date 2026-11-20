@@ -2,8 +2,8 @@ import type { User as TelegramFrom } from 'grammy/types';
 import type { Database } from './client.ts';
 import { expiresInFifteenMinutes } from '../domain/feedback.ts';
 import { normalizeLanguage, type Language } from '../domain/i18n.ts';
-import { commandOnce, userMutation, type Transaction } from './commands.ts';
-import { LAST_SEEN_REFRESH_MS, RECEIPT_RETENTION_MS } from '../config/constants.ts';
+import { commandOnce, type Transaction } from './commands.ts';
+import { LAST_SEEN_REFRESH_MS } from '../config/constants.ts';
 
 const USER_SNAPSHOT = {
   id: true,
@@ -14,6 +14,7 @@ const USER_SNAPSHOT = {
   awaitingFeedback: true,
   feedbackExpiresAt: true,
   lastSeenAt: true,
+  bannedAt: true,
 } as const;
 
 export type UserSnapshot = {
@@ -25,6 +26,7 @@ export type UserSnapshot = {
   awaitingFeedback: boolean;
   feedbackExpiresAt: Date | null;
   lastSeenAt: Date;
+  bannedAt: Date | null;
 };
 
 /**
@@ -121,85 +123,9 @@ export async function expireFeedback(db: Database, telegramId: number): Promise<
   return result.count > 0;
 }
 
-export async function getFeedbackState(
-  db: Database,
-  telegramId: number,
-): Promise<'none' | 'active' | 'expired'> {
-  const state = await db.telegramUser.findUnique({
-    where: { telegramId: BigInt(telegramId) },
-    select: { awaitingFeedback: true, feedbackExpiresAt: true },
-  });
-  if (!state?.awaitingFeedback) return 'none';
-  return state.feedbackExpiresAt && state.feedbackExpiresAt > new Date() ? 'active' : 'expired';
-}
-
-/** Atomic state consumption + unique update ID: safe against duplicate webhook deliveries. */
-export async function consumeFeedback(
-  db: Database,
-  telegramId: number,
-  sourceUpdateId: number,
-  text: string,
-): Promise<{ id: string } | null> {
-  return userMutation(db, telegramId, async (tx) => {
-    const existing = await tx.feedback.findUnique({ where: { sourceUpdateId }, select: { id: true } });
-    if (existing) return existing; // A retry may need to requeue this same feedback.
-
-    const userState = await tx.telegramUser.findUnique({ where: { telegramId: BigInt(telegramId) } });
-    if (
-      userState?.lastStateUpdateId !== null &&
-      userState?.lastStateUpdateId !== undefined &&
-      userState.lastStateUpdateId > sourceUpdateId &&
-      userState.lastStateUpdateAt &&
-      Date.now() - userState.lastStateUpdateAt.getTime() < RECEIPT_RETENTION_MS
-    )
-      return null;
-
-    const claimed = await tx.telegramUser.updateMany({
-      where: {
-        telegramId: BigInt(telegramId),
-        awaitingFeedback: true,
-        feedbackExpiresAt: { gt: new Date() },
-      },
-      data: {
-        awaitingFeedback: false,
-        feedbackExpiresAt: null,
-        lastStateUpdateId: sourceUpdateId,
-        lastStateUpdateAt: new Date(),
-      },
-    });
-    if (claimed.count === 0) return null;
-
-    const user = await tx.telegramUser.findUniqueOrThrow({
-      where: { telegramId: BigInt(telegramId) },
-      select: { id: true },
-    });
-    return tx.feedback.create({
-      data: { userId: user.id, sourceUpdateId, text },
-      select: { id: true },
-    });
-  });
-}
-
 export async function deleteMyData(db: Database, telegramId: number): Promise<void> {
+  // Cascades to tickets, messages, deliveries and events.
   await db.telegramUser.deleteMany({ where: { telegramId: BigInt(telegramId) } });
-  // Database cascade deletes related feedback. Pending notification jobs contain IDs only.
-}
-
-export async function countStats(db: Database) {
-  const [users, feedback, pending] = await Promise.all([
-    db.telegramUser.count(),
-    db.feedback.count(),
-    db.feedback.count({ where: { notifiedAt: null, deliveryStatus: 'pending' } }),
-  ]);
-  return { users, feedback, pending };
-}
-
-export async function listFeedback(db: Database, limit = 5) {
-  return db.feedback.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: limit,
-    include: { user: { select: { telegramId: true, username: true } } },
-  });
 }
 
 /** Personal data inventory for the authenticated Telegram user only. */
@@ -207,12 +133,23 @@ export async function getMyDataSummary(db: Database, telegramId: number) {
   const user = await db.telegramUser.findUnique({
     where: { telegramId: BigInt(telegramId) },
     select: {
-      telegramId: true,
+      id: true,
       language: true,
       createdAt: true,
       lastSeenAt: true,
-      _count: { select: { feedback: true } },
+      _count: { select: { tickets: true } },
     },
   });
-  return user;
+  if (!user) return null;
+  const messages = await db.ticketMessage.count({ where: { ticket: { userId: user.id } } });
+  return { ...user, ticketCount: user._count.tickets, messageCount: messages };
+}
+
+/** Banned users are ignored by the intake flow; privacy commands keep working for them. */
+export async function setBanned(db: Database, telegramId: number, banned: boolean): Promise<boolean> {
+  const updated = await db.telegramUser.updateMany({
+    where: { telegramId: BigInt(telegramId) },
+    data: { bannedAt: banned ? new Date() : null },
+  });
+  return updated.count > 0;
 }
