@@ -19,7 +19,12 @@ import {
 } from '../../db/tickets.ts';
 import { authorLabel } from '../../delivery/sender.ts';
 import { validateFeedback } from '../../domain/feedback.ts';
-import { deliveryStatusLabel, outboxHealthLabel, ticketStatusLabel } from '../../domain/i18n.ts';
+import {
+  deliveryStatusLabel,
+  outboxHealthLabel,
+  ticketEventLabel,
+  ticketStatusLabel,
+} from '../../domain/i18n.ts';
 import { truncateTelegramText } from '../../domain/telegram-text.ts';
 import type { TicketStatus } from '../../generated/prisma/client.ts';
 import { operationsHealth } from '../../observability/operations.ts';
@@ -144,6 +149,13 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
       const ticket = await getTicket(db, where, 15);
       if (!ticket) return ctx.reply(ctx.t('ticketMissing'));
       const none = ctx.t('none');
+      const assignee =
+        ticket.assignedTo === null
+          ? null
+          : await db.telegramUser.findUnique({
+              where: { telegramId: ticket.assignedTo },
+              select: { telegramId: true, username: true, firstName: true },
+            });
       await send(
         ctx,
         ctx.t('ticketDetail', {
@@ -151,14 +163,18 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
           status: ticketStatusLabel(ctx.lang, ticket.status),
           author: authorLabel(ticket.user),
           banned: ticket.user.bannedAt ? ctx.t('bannedMark') : '',
-          assignee: ticket.assignedTo?.toString() ?? none,
+          assignee: assignee ? authorLabel(assignee) : (ticket.assignedTo?.toString() ?? none),
           count: ticket._count.messages,
           shown: ticket.messages.length,
           messages: messageLines(ctx.t, ticket.messages, config.TIME_ZONE) || none,
           history:
-            ticket.events
-              .map((e) => `${e.action}@${shortTime(e.createdAt, config.TIME_ZONE)}`)
-              .join(', ') || none,
+            [...ticket.events]
+              .reverse()
+              .map(
+                (e) =>
+                  `${shortTime(e.createdAt, config.TIME_ZONE).slice(5)} ${ticketEventLabel(ctx.lang, e.action)}`,
+              )
+              .join(' → ') || none,
         }),
       );
     },
@@ -270,7 +286,14 @@ export function adminFeature({ config, db }: BotDeps): Composer<BotContext> {
       id,
       action as DeliveryAction,
     );
-    await ctx.reply(ctx.t('deliveryResult', { result }));
+    const replies = {
+      saved: 'deliveryResultSaved',
+      missing: 'deliveryResultMissing',
+      already_sent: 'deliveryResultAlreadySent',
+      busy: 'deliveryResultBusy',
+      stale: 'alreadyHandled',
+    } as const;
+    await ctx.reply(ctx.t(replies[result]));
   });
 
   admin('stats', async (ctx) => {

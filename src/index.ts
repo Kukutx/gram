@@ -7,7 +7,10 @@ import { createLogger } from './observability/logger.ts';
 import { createServer } from './server.ts';
 import { createRateLimiter } from './security/rate-limit.ts';
 import { initMonitoring, reportError } from './observability/errors.ts';
-import { withDeadline } from './runtime/tasks.ts';
+import { scheduleTask, withDeadline } from './runtime/tasks.ts';
+import { adminRecipients } from './bot/recipients.ts';
+import { createAlerter, telegramSender } from './observability/alerts.ts';
+import { operationsHealth } from './observability/operations.ts';
 
 async function main(): Promise<void> {
   const config = parseConfig();
@@ -20,6 +23,7 @@ async function main(): Promise<void> {
   let rateLimiter: ReturnType<typeof createRateLimiter> | undefined;
   let bot: ReturnType<typeof createBot> | undefined;
   let app: ReturnType<typeof createServer> | undefined;
+  let watchdog: ReturnType<typeof scheduleTask> | undefined;
   let closing = false;
 
   async function shutdown(signal: string): Promise<void> {
@@ -37,6 +41,7 @@ async function main(): Promise<void> {
         logger.error({ err: error, component: label }, 'Shutdown operation failed');
       }
     }
+    watchdog?.stop();
     if (bot?.isRunning()) await safeClose('bot', async () => bot!.stop());
     if (app) await safeClose('http', () => app!.close());
     if (rateLimiter) await safeClose('ratelimiter', () => rateLimiter!.close());
@@ -64,6 +69,7 @@ async function main(): Promise<void> {
     bot = createBot({ config, db, logger, rateLimiter });
     // Health/metrics are served in both modes so any orchestrator can probe the process.
     app = createServer({ config, db, bot, logger });
+    watchdog = watchWorker(config, db, bot, logger);
 
     if (config.BOT_MODE === 'webhook') {
       // Invalid Bot Token / unavailable Telegram API must fail before accepting webhooks.
@@ -84,6 +90,36 @@ async function main(): Promise<void> {
     await shutdown('startup-failure');
     throw error;
   }
+}
+
+/**
+ * The worker sends every message, so when it stops nothing reaches anyone, including its own
+ * alerts. The bot process watches the worker's heartbeat and tells the admins directly.
+ */
+function watchWorker(
+  config: ReturnType<typeof parseConfig>,
+  db: ReturnType<typeof createPrisma>,
+  bot: ReturnType<typeof createBot>,
+  logger: ReturnType<typeof createLogger>,
+) {
+  const startedAt = Date.now();
+  const alerter = createAlerter({
+    send: telegramSender(bot.api),
+    chats: adminRecipients(config).map((r) => Number(r.chatId)),
+    language: config.DEFAULT_LANGUAGE,
+    onError: (error) => logger.warn({ err: error }, 'Could not send a health alert'),
+  });
+  const task = scheduleTask(
+    async () => {
+      // The worker may start a little later than the bot.
+      if (Date.now() - startedAt < 180_000) return;
+      const health = await operationsHealth(db, config);
+      await alerter.update(health.workerFresh ? [] : [{ kind: 'worker' }]);
+    },
+    60_000,
+    (error) => logger.warn({ err: error }, 'Worker watchdog check failed'),
+  );
+  return task;
 }
 
 main().catch((error: unknown) => {

@@ -14,6 +14,10 @@
 - 投递：去掉 BullMQ，改为 PostgreSQL 发件箱 + `LISTEN/NOTIFY` 即时唤醒；同一聊天严格按顺序，不同聊天并行（`DELIVERY_CONCURRENCY`）；临时错误按指数退避重试，永久错误（被拉黑等）停放待人工处理。Redis 只剩跨实例限流一个用途，可不配。
 - 运维：`pnpm doctor` 增加迁移、NOTIFY 触发器、客服群权限与话题检查；`pnpm outbox:status` 按状态统计发件箱；新增 `grammy_bot_delivery_outcomes_total` 指标。
 - 网络错误不再被自动重试无限挂起：机器人把失败交给 Telegram 重投，Worker 交给发件箱退避。
+- 免维护：服务器每天自动更新（`deploy/auto-update.sh`），新版本启动或自检失败就自动退回原版本，结果在 Telegram 通知管理员（`AUTO_UPDATE=false` 关闭）；系统安全更新需要重启时在 5:30 自动重启。重新运行一键部署命令不再询问任何内容（`GRAM_CHANGE_TOKEN=1` 才换 Token）。Oracle 脚本按主区域自动设置时区。部署时读取管理员 ID 用过的 `/start` 会被标记为已读，机器人启动后不再逐条回复。
+- 主动提醒：Worker 发现发送卡住、消息积压、投递失败或清理落后，Bot 发现 Worker 停止心跳，都会直接（不经过发件箱）在 Telegram 提醒管理员，恢复后通知一次，同一问题不重复提醒；发送循环卡住 5 分钟时 Worker 自动退出由容器重启。每日备份或上传失败也会提醒。
+- 客服体验：通知上的按钮跟随工单状态（待处理：受理/已解决/结案；已解决：结案/重新打开……），按下后按钮自动更新；`command` 模式下用户有进行中的工单时，直接发消息就会补充到该工单。`/ticket` 的历史和受理人、`/delivery` 的结果改为本地化文字。
+- 投递遇到 Telegram 限流（429）时按 `retry_after` 等待，不再提前重试。
 - `TIME_ZONE`（IANA 时区，默认 UTC）：工单列表、详情和 `/my_feedbacks` 里的时间按该时区显示；一键部署脚本用 `GRAM_TIME_ZONE` 传入，写错会在创建任何资源前报错。`/status` 的积压等级和「最早待发送」改为本地化文字，没有积压时显示「无」。
 - 删除离线冒烟脚本（已被单元测试覆盖），集成测试不再需要 Redis。
 

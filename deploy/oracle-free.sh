@@ -6,10 +6,11 @@
 # It creates (or reuses) a network and one Always Free server in your home region
 # (Ampere A1: 2 OCPUs, 12 GB; falls back to the 1 GB AMD micro if Arm capacity is out),
 # finds your Telegram ID, installs Docker and starts the bot with its own PostgreSQL.
-# Re-run it any time to update the bot or change the token.
+# Re-run it any time to update the bot (it asks nothing then); GRAM_CHANGE_TOKEN=1 changes the token.
+# The server also updates itself daily (see deploy/auto-update.sh), so re-running is rarely needed.
 #
 # Optional overrides: OCI_TENANCY, GRAM_VM, GRAM_REF, GRAM_OCPUS, GRAM_MEMORY_GB, BOT_TOKEN, ADMIN_IDS,
-# GRAM_TIME_ZONE (e.g. Europe/Rome; times in chats are UTC otherwise).
+# GRAM_TIME_ZONE (e.g. Europe/Rome; defaults to the home region's time zone).
 set -euo pipefail
 
 VM="${GRAM_VM:-gram-bot}"
@@ -28,6 +29,40 @@ if [[ -n "${GRAM_TIME_ZONE:-}" ]]; then # checked up front so a typo fails befor
 fi
 ask() { local reply; read -r -p "$1" reply < /dev/tty; printf '%s' "$reply"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
+region_time_zone() { # region_time_zone OCI_REGION: the IANA zone where that region is, or nothing
+  case "$1" in
+    af-johannesburg-*) echo Africa/Johannesburg ;;
+    ap-chuncheon-* | ap-seoul-*) echo Asia/Seoul ;;
+    ap-hyderabad-* | ap-mumbai-*) echo Asia/Kolkata ;;
+    ap-melbourne-*) echo Australia/Melbourne ;;
+    ap-sydney-*) echo Australia/Sydney ;;
+    ap-osaka-* | ap-tokyo-*) echo Asia/Tokyo ;;
+    ap-singapore-*) echo Asia/Singapore ;;
+    ap-batam-*) echo Asia/Jakarta ;;
+    ca-montreal-* | ca-toronto-*) echo America/Toronto ;;
+    eu-amsterdam-*) echo Europe/Amsterdam ;;
+    eu-frankfurt-*) echo Europe/Berlin ;;
+    eu-madrid-*) echo Europe/Madrid ;;
+    eu-marseille-* | eu-paris-*) echo Europe/Paris ;;
+    eu-milan-* | eu-turin-*) echo Europe/Rome ;;
+    eu-stockholm-*) echo Europe/Stockholm ;;
+    eu-zurich-*) echo Europe/Zurich ;;
+    eu-jovanovac-*) echo Europe/Belgrade ;;
+    il-jerusalem-*) echo Asia/Jerusalem ;;
+    me-abudhabi-* | me-dubai-*) echo Asia/Dubai ;;
+    me-jeddah-* | me-riyadh-*) echo Asia/Riyadh ;;
+    mx-monterrey-*) echo America/Monterrey ;;
+    mx-queretaro-*) echo America/Mexico_City ;;
+    sa-bogota-*) echo America/Bogota ;;
+    sa-santiago-* | sa-valparaiso-*) echo America/Santiago ;;
+    sa-saopaulo-* | sa-vinhedo-*) echo America/Sao_Paulo ;;
+    uk-cardiff-* | uk-london-*) echo Europe/London ;;
+    us-ashburn-*) echo America/New_York ;;
+    us-chicago-*) echo America/Chicago ;;
+    us-phoenix-*) echo America/Phoenix ;;
+    us-sanjose-*) echo America/Los_Angeles ;;
+  esac
+}
 command -v oci >/dev/null || die 'Run this in Oracle Cloud Shell: Oracle Cloud console → the >_ icon at the top right.'
 
 # ── 1. Account and network ─────────────────────────────────────────────────────
@@ -73,10 +108,13 @@ echo '网络已就绪。'
 say '2/6 机器人 Token'
 TOKEN="${BOT_TOKEN:-}"
 KEEP=''
-while true; do
+# Updating an existing server asks nothing: the token and admins on it are kept.
+# GRAM_CHANGE_TOKEN=1 asks for a new token instead.
+[[ -n "$INSTANCE" && -z "$TOKEN" && -z "${GRAM_CHANGE_TOKEN:-}" ]] && KEEP=1
+while [[ -z "$KEEP" ]]; do
   if [[ -z "$TOKEN" ]]; then
     hint='粘贴 BotFather 给你的 Token（输入时不显示），按回车: '
-    [[ -n "$INSTANCE" ]] && hint='粘贴新的 Token（输入时不显示）；不换 Token 直接按回车: '
+    [[ -n "$INSTANCE" ]] && hint='粘贴新的 Token（输入时不显示）；不换就直接按回车: '
     read -r -s -p "$hint" TOKEN < /dev/tty; echo
   fi
   TOKEN="$(printf '%s' "$TOKEN" | tr -d '[:space:]')"
@@ -105,6 +143,12 @@ print(ids[-1] if ids else "")' 2>/dev/null || true)"
     [[ -n "$ADMINS" ]] && break
     sleep 2
   done
+  # Mark those messages as read, or the bot would answer each queued /start once it starts.
+  if [[ -n "$ADMINS" ]]; then
+    NEXT="$(curl -fsS "https://api.telegram.org/bot$TOKEN/getUpdates?offset=-1&timeout=0" 2>/dev/null |
+      python3 -c 'import json,sys; r=json.load(sys.stdin).get("result",[]); print(r[-1]["update_id"]+1 if r else "")' 2>/dev/null || true)"
+    [[ -n "$NEXT" ]] && { curl -fsS "https://api.telegram.org/bot$TOKEN/getUpdates?offset=$NEXT&timeout=0" >/dev/null 2>&1 || true; }
+  fi
   [[ -n "$ADMINS" ]] || ADMINS="$(ask '没收到消息。请输入你的数字 Telegram ID（可用 @userinfobot 查询）: ')"
 fi
 if [[ -n "$ADMINS" ]]; then
@@ -198,7 +242,13 @@ say '5/6 安装并启动（首次大约 10-20 分钟，请保持这个窗口打�
 SETTINGS='BOT_MODE=polling\n'
 [[ -n "$KEEP" ]] || SETTINGS+="BOT_TOKEN=$TOKEN\n"
 [[ -n "$ADMINS" ]] && SETTINGS+="ADMIN_IDS=$ADMINS\n"
-[[ -n "${GRAM_TIME_ZONE:-}" ]] && SETTINGS+="TIME_ZONE=$GRAM_TIME_ZONE\n"
+# Chat timestamps: GRAM_TIME_ZONE when given, else the home region's zone (people usually pick
+# the region nearest to them), unless the server already has a TIME_ZONE.
+ZONE_SETTING="${GRAM_TIME_ZONE:-}"
+if [[ -z "$ZONE_SETTING" ]] && ! ssh_vm 'sudo grep -q "^TIME_ZONE=" /opt/gram/.env' 2>/dev/null; then
+  ZONE_SETTING="$(region_time_zone "${HOME_REGION:-}")"
+fi
+[[ -n "$ZONE_SETTING" ]] && SETTINGS+="TIME_ZONE=$ZONE_SETTING\n"
 # Off-server backups: a private bucket (Always Free Object Storage) and a write-only link that
 # the server's daily backup uploads to. A reclaimed or broken server then loses no data.
 # The link is shown only once, so it is (re)created only when the server does not have it yet.

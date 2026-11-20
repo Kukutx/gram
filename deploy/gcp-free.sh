@@ -5,7 +5,8 @@
 #
 # It creates (or reuses) a project, links billing, creates one always-free e2-micro VM
 # (us-central1, 30 GB standard disk), finds your Telegram ID, installs Docker and starts
-# the bot with its own PostgreSQL. Re-run it any time to update the bot or change the token.
+# the bot with its own PostgreSQL. Re-run it any time to update the bot (it asks nothing then);
+# GRAM_CHANGE_TOKEN=1 changes the token. The server also updates itself daily (deploy/auto-update.sh).
 #
 # Optional overrides: GCP_PROJECT, GRAM_VM, GRAM_ZONE, GRAM_REF, BOT_TOKEN, ADMIN_IDS,
 # GRAM_TIME_ZONE (e.g. Europe/Rome; times in chats are UTC otherwise).
@@ -52,10 +53,13 @@ ZONE="$(gcloud compute instances list --filter="name=$VM" --format='value(zone.b
 say '2/6 机器人 Token'
 TOKEN="${BOT_TOKEN:-}"
 KEEP=''
-while true; do
+# Updating an existing server asks nothing: the token and admins on it are kept.
+# GRAM_CHANGE_TOKEN=1 asks for a new token instead.
+[[ -n "$ZONE" && -z "$TOKEN" && -z "${GRAM_CHANGE_TOKEN:-}" ]] && KEEP=1
+while [[ -z "$KEEP" ]]; do
   if [[ -z "$TOKEN" ]]; then
     hint='粘贴 BotFather 给你的 Token（输入时不显示），按回车: '
-    [[ -n "$ZONE" ]] && hint='粘贴新的 Token（输入时不显示）；不换 Token 直接按回车: '
+    [[ -n "$ZONE" ]] && hint='粘贴新的 Token（输入时不显示）；不换就直接按回车: '
     read -r -s -p "$hint" TOKEN < /dev/tty; echo
   fi
   TOKEN="$(printf '%s' "$TOKEN" | tr -d '[:space:]')"
@@ -84,6 +88,12 @@ print(ids[-1] if ids else "")' 2>/dev/null || true)"
     [[ -n "$ADMINS" ]] && break
     sleep 2
   done
+  # Mark those messages as read, or the bot would answer each queued /start once it starts.
+  if [[ -n "$ADMINS" ]]; then
+    NEXT="$(curl -fsS "https://api.telegram.org/bot$TOKEN/getUpdates?offset=-1&timeout=0" 2>/dev/null |
+      python3 -c 'import json,sys; r=json.load(sys.stdin).get("result",[]); print(r[-1]["update_id"]+1 if r else "")' 2>/dev/null || true)"
+    [[ -n "$NEXT" ]] && { curl -fsS "https://api.telegram.org/bot$TOKEN/getUpdates?offset=$NEXT&timeout=0" >/dev/null 2>&1 || true; }
+  fi
   [[ -n "$ADMINS" ]] || ADMINS="$(ask '没收到消息。请输入你的数字 Telegram ID（可用 @userinfobot 查询）: ')"
 fi
 if [[ -n "$ADMINS" ]]; then

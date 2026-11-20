@@ -6,11 +6,12 @@ TypeScript / Node.js 24 / grammY / Fastify / PostgreSQL / Prisma。用户在私�
 
 ## 功能
 
-- 用户：`/feedback` 提交（或 `INTAKE_MODE=direct` 直接发消息），支持图片、文件、语音、视频等；「回复」客服消息即可补充；`/my_feedbacks`、`/ticket <编号>` 查看进度；中英双语；资料导出与一次性确认删除。
-- 客服：多个管理员（`ADMIN_IDS`）或一个客服群（`ADMIN_CHAT_ID`），群可开「每个工单一个话题」（`ADMIN_USE_TOPICS`）。直接回复通知或在话题里打字就是回复用户；通知带「受理 / 已解决 / 结案」按钮。
+- 用户：`/feedback` 提交（或 `INTAKE_MODE=direct` 直接发消息），支持图片、文件、语音、视频等；工单处理期间直接发消息或「回复」客服消息即可补充；`/my_feedbacks`、`/ticket <编号>` 查看进度；中英双语；资料导出与一次性确认删除。
+- 客服：多个管理员（`ADMIN_IDS`）或一个客服群（`ADMIN_CHAT_ID`），群可开「每个工单一个话题」（`ADMIN_USE_TOPICS`）。直接回复通知或在话题里打字就是回复用户；通知上的按钮跟随工单状态（受理 / 已解决 / 结案 / 重新打开）。
 - 管理命令：`/tickets`（分页筛选）、`/ticket`、`/search`、`/reply`、`/assign`、`/resolve`、`/close`、`/reopen`、`/set_status`、`/ban`、`/unban`、`/deliveries`、`/delivery`、`/stats`、`/status`。工单用短编号 `#12`，在话题里或回复通知时可省略。
 - 可靠性：命令回执与按用户串行化防重放；发件箱按聊天保序、跨聊天并行，`LISTEN/NOTIFY` 即时唤醒，指数退避重试，永久失败停放待人工处理。
-- 观测：日志和 Sentry 不含消息正文与凭据；`/live`、`/ready`、受保护的 `/ops/health` 与 Prometheus `/metrics`。
+- 观测：日志和 Sentry 不含消息正文与凭据；`/live`、`/ready`、受保护的 `/ops/health` 与 Prometheus `/metrics`。发送卡住、积压、投递失败、Worker 停止时直接在 Telegram 提醒管理员。
+- 免维护部署：一键部署的服务器每天自动更新（失败自动回滚并通知）、自动备份并上传、自动安装安全更新。
 
 外部消息投递在「Telegram 已发送、数据库确认前进程崩溃」的窗口仍可能重复一次，这是 Telegram API 的限制。
 

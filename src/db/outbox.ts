@@ -109,10 +109,12 @@ export async function markFailed(
   db: Database,
   id: string,
   token: string,
-  failure: { code: number | null; permanent: boolean; attempts: number },
+  failure: { code: number | null; permanent: boolean; attempts: number; retryAfterMs?: number },
   now: Date = new Date(),
 ): Promise<'blocked' | 'retry'> {
   const blocked = failure.permanent || failure.attempts >= MAX_TEMPORARY_ATTEMPTS;
+  // Flood control names its own wait; retrying sooner only extends the ban.
+  const delay = Math.max(retryDelayMs(failure.attempts), failure.retryAfterMs ?? 0);
   await db.delivery.updateMany({
     where: { id, leaseToken: token },
     data: {
@@ -120,7 +122,7 @@ export async function markFailed(
       lastErrorCode: failure.code,
       lastErrorAt: now,
       leaseToken: null,
-      leaseUntil: blocked ? null : new Date(now.getTime() + retryDelayMs(failure.attempts)),
+      leaseUntil: blocked ? null : new Date(now.getTime() + delay),
     },
   });
   return blocked ? 'blocked' : 'retry';

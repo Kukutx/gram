@@ -12,6 +12,8 @@ import {
 } from '../db/outbox.ts';
 import { CAPTIONED_TYPES, isAttachmentType, type AttachmentType } from '../domain/content.ts';
 import { normalizeLanguage, t, ticketStatusLabel, type Language } from '../domain/i18n.ts';
+import type { StatusAction } from '../db/tickets.ts';
+import type { TicketStatus } from '../generated/prisma/client.ts';
 import { truncateTelegramText, withHeader } from '../domain/telegram-text.ts';
 import { reportError } from '../observability/errors.ts';
 import { safeError, type Logger } from '../observability/logger.ts';
@@ -53,12 +55,32 @@ export function authorLabel(user: {
   return user.firstName ? `${user.firstName} (${user.telegramId})` : String(user.telegramId);
 }
 
-/** Buttons on every admin notification; handled by the bot's support feature. */
-export function ticketKeyboard(language: Language, number: number): InlineKeyboard {
-  return new InlineKeyboard()
-    .text(t(language, 'btnTake'), `tk:${number}:assign`)
-    .text(t(language, 'btnResolve'), `tk:${number}:resolved`)
-    .text(t(language, 'btnClose'), `tk:${number}:closed`);
+const TICKET_BUTTONS = {
+  open: ['assign', 'resolved', 'closed'],
+  in_progress: ['resolved', 'closed'],
+  resolved: ['closed', 'open'],
+  closed: ['open'],
+} as const satisfies Record<TicketStatus, readonly StatusAction[]>;
+const BUTTON_LABELS = {
+  assign: 'btnTake',
+  resolved: 'btnResolve',
+  closed: 'btnClose',
+  open: 'btnReopen',
+} as const;
+
+/**
+ * Buttons on admin notifications, handled by the bot's support feature. They offer only
+ * the next sensible steps for the ticket's status; a press refreshes them.
+ */
+export function ticketKeyboard(
+  language: Language,
+  number: number,
+  status: TicketStatus,
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const action of TICKET_BUTTONS[status] ?? TICKET_BUTTONS.open)
+    keyboard.text(t(language, BUTTON_LABELS[action]), `tk:${number}:${action}`);
+  return keyboard;
 }
 
 type Plan = {
@@ -90,7 +112,7 @@ function plan(delivery: LoadedDelivery, config: AppConfig): Plan {
     chatId,
     language,
     header,
-    keyboard: ticketKeyboard(language, ticket.number),
+    keyboard: ticketKeyboard(language, ticket.number, ticket.status),
     toAdminGroup: config.ADMIN_CHAT_ID !== undefined && chatId === config.ADMIN_CHAT_ID,
   };
 }
@@ -204,10 +226,13 @@ export async function sendDelivery(
       error instanceof GrammyError && code === 400 && /thread not found|topic/i.test(error.description);
     if (lostTopic) await setTicketThread(deps.db, delivery.message.ticket.id, null);
     const permanent = !lostTopic && code !== null && PERMANENT_ERROR_CODES.has(code);
+    const retryAfter =
+      error instanceof GrammyError && code === 429 ? (error.parameters.retry_after ?? 0) : 0;
     const outcome = await markFailed(deps.db, id, token, {
       code,
       permanent,
       attempts: delivery.attempts,
+      retryAfterMs: retryAfter * 1_000,
     });
     deps.logger.error(
       { err: error, direction: delivery.message.direction },

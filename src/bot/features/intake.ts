@@ -31,8 +31,8 @@ function feedbackState(ctx: BotContext): 'none' | 'active' | 'expired' {
 
 /**
  * User side of support: /feedback opens a ticket with the next message; replying
- * to a support message adds to that ticket; in `direct` intake mode any message
- * goes to the user's active ticket (or opens one). Messages are committed with
+ * to a support message adds to that ticket; any message goes to the user's ticket
+ * in progress, and in `direct` intake mode opens one when there is none. Messages are committed with
  * their outbox rows in one transaction; the worker delivers them.
  */
 export function intakeFeature({ config, db }: BotDeps): Composer<BotContext> {
@@ -150,7 +150,21 @@ export function intakeFeature({ config, db }: BotDeps): Composer<BotContext> {
       return acknowledge(ctx, result);
     }
 
-    // 3. Telegram retried an update whose ticket was saved before the reply failed.
+    // 3. Command mode: while the user has a ticket in progress, a plain message continues it
+    //    (people rarely remember to use "reply"); with none, /feedback is needed.
+    if (state === 'none' && content) {
+      const active = await latestActiveTicket(db, ctx.from.id);
+      if (active) {
+        const validated = validateContent(content);
+        if (!validated.ok) return ctx.reply(ctx.t(VALIDATION_KEYS[validated.reason]));
+        return acknowledge(
+          ctx,
+          await addUserMessage(db, ctx.from.id, updateId, active.id, validated.content, recipients),
+        );
+      }
+    }
+
+    // 4. Telegram retried an update whose ticket was saved before the reply failed.
     const saved = await db.ticketMessage.findUnique({
       where: { sourceUpdateId: updateId },
       select: { id: true },

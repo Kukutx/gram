@@ -63,7 +63,8 @@ const configSchema = z
     /** In a forum-enabled admin group, open one topic per ticket. */
     ADMIN_USE_TOPICS: booleanFlag(false),
     /**
-     * `command`: users send /feedback, then one message opens a ticket.
+     * `command`: users send /feedback, then one message opens a ticket; while a ticket is
+     *   in progress, plain messages continue it.
      * `direct`: every private message goes to the user's open ticket (or opens one).
      */
     INTAKE_MODE: z.enum(['command', 'direct']).default('command'),

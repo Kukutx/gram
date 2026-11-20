@@ -38,14 +38,21 @@ Oracle Cloud 的 Always Free 资源不限期免费，公网 IP 不另收费。�
 
 脚本 [`deploy/oracle-free.sh`](../deploy/oracle-free.sh) 做的事：找到主区域；创建网络 `gram-vcn`（只允许 SSH 进入，出站不限）；校验 Token、读取你的 Telegram ID；在各个可用域依次尝试创建机器（`gram-bot`，Ubuntu 24.04）；SSH 钥匙保存在 Cloud Shell 的 `~/.ssh/gram_oci`；然后和 GCP 一样运行 [`deploy/server-install.sh`](../deploy/server-install.sh)，安装在服务器上以 systemd 任务运行，断线不影响；设置每日备份上传到存储桶 `gram-backups`；最后建一个 1 元预算，有任何费用就发邮件。
 
-**再次运行同一条命令**就是更新，Token 处直接回车表示沿用原来的设置。可选环境变量：`OCI_TENANCY`、`GRAM_VM`、`GRAM_REF`、`GRAM_OCPUS`、`GRAM_MEMORY_GB`、`BOT_TOKEN`、`ADMIN_IDS`、`GRAM_TIME_ZONE`。
+**装好以后基本不用管**（Oracle 和 GCP 一样）：
 
-聊天里显示的时间默认是 UTC。想按本地时间显示，在命令前加上时区，例如 `GRAM_TIME_ZONE=Europe/Rome bash <(curl -fsSL …/oracle-free.sh)`（中国用 `Asia/Shanghai`）；GCP 脚本同样支持。其他部署方式在 `.env` 里设 `TIME_ZONE`。
+- **自动更新**：服务器每天凌晨（服务器时间 4 点多）检查代码有没有更新，有就自动安装。新版本没通过启动和自检，会自动退回原来的版本。不管成功还是退回，都会在 Telegram 里通知管理员。不想自动更新，就在 `/opt/gram/.env` 里加 `AUTO_UPDATE=false`。
+- **主动提醒**：消息发不出去、发送卡住、后台进程停止、备份失败时，机器人会在 Telegram 里提醒管理员；恢复后再说一声。同一个问题不会反复提醒。发送进程卡住时会自动重启。
+- **系统安全更新**每天自动安装；需要重启时在早上 5:30（服务器时间）自动重启，机器人随后自己恢复。
+- **重新运行同一条命令**会立刻更新，中间什么都不问，沿用服务器上的 Token 和管理员。要换 Token，在命令前加 `GRAM_CHANGE_TOKEN=1`。
+
+可选环境变量：`OCI_TENANCY`、`GRAM_VM`、`GRAM_REF`、`GRAM_OCPUS`、`GRAM_MEMORY_GB`、`BOT_TOKEN`、`ADMIN_IDS`、`GRAM_TIME_ZONE`、`GRAM_CHANGE_TOKEN`。
+
+聊天里显示的时间默认用主区域所在地的时区（米兰 → Europe/Rome，东京 → Asia/Tokyo），服务器上已经设过的不会被改。想指定，在命令前加上时区，例如 `GRAM_TIME_ZONE=Asia/Shanghai bash <(curl -fsSL …/oracle-free.sh)`；GCP 脚本也支持（不指定就是 UTC）。其他部署方式在 `.env` 里设 `TIME_ZONE`。
 
 需要注意：
 
 - **没有空闲机器**：Oracle 热门区域常提示 "Out of host capacity"。过一两个小时再运行同一条命令即可。
-- **闲置回收**：Oracle 可能回收 7 天内 CPU、网络、内存使用率都低于 20% 的免费机器，客服机器人通常就是这种状态。所以脚本会建一个私有存储桶 `gram-backups`（Always Free 对象存储，20 GB），每天的备份除了留在服务器上，还会上传一份（按日期命名 `gram-day-01` … `gram-day-31`，滚动保留一个月）。机器被回收后，重新运行脚本，再按下面的方法恢复最近的备份即可。想彻底避免回收，可以把账号升级为 Pay As You Go：Always Free 资源升级后照样免费，但账号从此可以产生费用，个人试用一般不必升级。
+- **闲置回收**：Oracle 可能回收 7 天内 CPU、网络、内存使用率都低于 20% 的免费机器（免费试用账号；升级为 Pay As You Go 的账号不回收），客服机器人通常就是这种状态。所以脚本会建一个私有存储桶 `gram-backups`（Always Free 对象存储，20 GB），每天的备份除了留在服务器上，还会上传一份（按日期命名 `gram-day-01` … `gram-day-31`，滚动保留一个月）。机器被回收后，重新运行脚本，再按下面的方法恢复最近的备份即可。想彻底避免回收，可以把账号升级为 Pay As You Go：Always Free 资源升级后照样免费，但账号从此可以产生费用，个人试用一般不必升级。
 - **从存储桶恢复**：在控制台 Storage → Buckets → `gram-backups` 下载最新的 `gram-day-XX.sql.gz`，上传到服务器（Cloud Shell 里 `scp -i ~/.ssh/gram_oci 文件 ubuntu@服务器IP:`），然后在服务器上运行：`gunzip -c gram-day-XX.sql.gz | sudo docker compose --env-file /opt/gram/.env -f /opt/gram/deploy/compose.yaml exec -T postgres psql -U bot -d grammy_bot`。
 - **两个项目共用免费额度**：A1 一共 2 核 12 GB，可以拆成两台。给这个机器人用一半：`GRAM_OCPUS=1 GRAM_MEMORY_GB=6 bash <(curl -fsSL …/oracle-free.sh)`，另一半留给别的项目。
 - **钥匙**：SSH 钥匙只在主区域的 Cloud Shell 里保存。Cloud Shell 半年不用会被清空，到时在控制台删除 `gram-bot` 再运行脚本即可（数据库会一起删除，先用 `deploy/backup.sh` 备份）。
@@ -68,9 +75,9 @@ Oracle Cloud 的 Always Free 资源不限期免费，公网 IP 不另收费。�
 4. 按提示粘贴 Token；看到提示后在 Telegram 里给你的机器人发 `/start`（脚本据此识别你是管理员）。
 5. 等脚本跑完（首次 15–25 分钟），给机器人发 `/start` 和 `/help` 试一下。
 
-脚本 [`deploy/gcp-free.sh`](../deploy/gcp-free.sh) 做的事：选用或新建项目并绑定结算账号；校验 Token；自动读取你的 Telegram ID；在免费区域依次尝试创建 e2-micro（只开 SSH 端口，不挂服务账号）；把设置传到服务器上的 `/etc/gram/env.install`（权限 600），然后运行 [`deploy/server-install.sh`](../deploy/server-install.sh)：加 2 GB 交换空间、装 Docker 和自动安全更新、拉取代码到 `/opt/gram`、生成数据库密码、设每天 3:15 备份（保留 14 份）和每周清理旧镜像，最后执行 `deploy/up.sh`。安装在服务器上以 systemd 任务运行，Cloud Shell 断线不影响；最后还会建一个预算提醒，产生任何费用都会发邮件。
+脚本 [`deploy/gcp-free.sh`](../deploy/gcp-free.sh) 做的事：选用或新建项目并绑定结算账号；校验 Token；自动读取你的 Telegram ID；在免费区域依次尝试创建 e2-micro（只开 SSH 端口，不挂服务账号）；把设置传到服务器上的 `/etc/gram/env.install`（权限 600），然后运行 [`deploy/server-install.sh`](../deploy/server-install.sh)：加 2 GB 交换空间、装 Docker 和自动安全更新、拉取代码到 `/opt/gram`、生成数据库密码、设每天 3:15 备份（保留 14 份）、每天自动更新（[`deploy/auto-update.sh`](../deploy/auto-update.sh)）和每周清理旧镜像，最后执行 `deploy/up.sh`。安装在服务器上以 systemd 任务运行，Cloud Shell 断线不影响；最后还会建一个预算提醒，产生任何费用都会发邮件。
 
-**再次运行同一条命令**就是更新：拉取最新代码并重新部署。提示输入 Token 时直接回车表示沿用原来的设置，粘贴新 Token 则更换机器人。可选环境变量：`GCP_PROJECT`、`GRAM_VM`、`GRAM_ZONE`、`GRAM_REF`、`BOT_TOKEN`、`ADMIN_IDS`。
+**再次运行同一条命令**就是立刻更新，中间什么都不问，沿用原来的设置；平时服务器每天会自动更新（见上面 Oracle 部分的「装好以后基本不用管」）。要换 Token，在命令前加 `GRAM_CHANGE_TOKEN=1`。可选环境变量：`GCP_PROJECT`、`GRAM_VM`、`GRAM_ZONE`、`GRAM_REF`、`BOT_TOKEN`、`ADMIN_IDS`、`GRAM_TIME_ZONE`、`GRAM_CHANGE_TOKEN`。
 
 费用说明：机器和磁盘在免费额度内。Google 对外网 IPv4 地址单独计费（约 0.005 美元/小时，约 3.6 美元/月），90 天试用赠金期间由赠金抵扣，之后会产生这笔费用；预算提醒会在第一笔费用时通知你。不用时可以在控制台停止或删除 `gram-bot` 这台机器。
 
