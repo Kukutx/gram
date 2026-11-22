@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS builder
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS builder
 ARG SOURCE_REVISION=local
 LABEL org.opencontainers.image.revision=$SOURCE_REVISION
 WORKDIR /app
@@ -16,7 +16,7 @@ CMD ["pnpm", "db:deploy"]
 FROM builder AS production-deps
 RUN pnpm prune --prod
 
-FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS runtime
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS runtime
 ARG SOURCE_REVISION=local
 LABEL org.opencontainers.image.revision=$SOURCE_REVISION
 ENV NODE_ENV=production
